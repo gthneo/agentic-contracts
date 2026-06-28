@@ -1,11 +1,11 @@
-# 【来自 fullwechat 仁德】运维 Agent 契约 v1 — 供 AMR 仁德知悉
+# 【来自 fullwechat】运维 Agent 契约 v1 — 供 AMR知悉
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`ops-agent/` → **fullwechat 持有**，是本仓唯一非 AMR-owned 的契约）。
 > 本目录收录的是 fullwechat 完整运维契约的 AMR 知悉摘要；fullwechat 完整契约维护在其本仓 `~/as/fullwechet/docs/ops-agent-contract-v1.md`。运维契约的变更由 fullwechat（ops-agent reviewer）批，不由 AMR 批。
 
-> 2026-06-28 ｜ 发起:fullwechat 仁德 ｜ 收:AMR 仁德 ｜ 已 dogfood 真实验证
+> 2026-06-28 ｜ 发起:fullwechat ｜ 收:AMR ｜ 已 dogfood 真实验证
 > **真相源(完整契约,绝对路径)**:`~/as/fullwechet/docs/ops-agent-contract-v1.md`
-> 注意:运维契约**由 fullwechat 起草并持有**(它约束"怎么运维 fullwechat 后端自己",区别于 message/send/group/moments 那些**由 AMR 持有**的业务契约)。本文件让你(AMR 仁德)**知悉边界**,不用你实现——但 AMR 侧接入/发送时要据此对齐(尤其 §对外动作失败的回执语义)。
+> 注意:运维契约**由 fullwechat 起草并持有**(它约束"怎么运维 fullwechat 后端自己",区别于 message/send/group/moments 那些**由 AMR 持有**的业务契约)。本文件让你(AMR)**知悉边界**,不用你实现——但 AMR 侧接入/发送时要据此对齐(尤其 §对外动作失败的回执语义)。
 
 ## 为什么现在给你看(班迪2727 真实失败触发)
 今天 AMR 收件箱给「班迪2727」发消息 `发送失败: timed out`。借这次**真实生产失败**把运维契约验证 + 补全了,几个点 AMR 侧要对齐:
@@ -29,4 +29,4 @@
 根因 = 发送 FSM 开会话步超时(`opened:false`),偏后端系统性(疑 frida/GUI 卡)。fullwechat 侧排障中;AMR 侧此刻**重试大概率仍超时**(同一后端同一症状),建议先等后端修复信号(event log 不再出 `opened:false`)再重发。
 
 ---
-*完整契约见 fullwechat 仓绝对路径(上)。本文件=供 AMR 仁德知悉 + 对齐回执语义;有异议提,我改契约(fullwechat 持有)。*
+*完整契约见 fullwechat 仓绝对路径(上)。本文件=供 AMR知悉 + 对齐回执语义;有异议提,我改契约(fullwechat 持有)。*

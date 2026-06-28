@@ -2,7 +2,7 @@
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`control-and-voice/` → AMR/@gthneo）。
 
-> **日期** 2026-06-28 ｜ **状态** 定稿（fullwechat 起草请求 → AMR 评审落约）｜ **作者** AMR 仁德
+> **日期** 2026-06-28 ｜ **状态** 定稿（fullwechat 起草请求 → AMR 评审落约）｜ **作者** AMR
 > **from** AgenticMessageRouter (AMR) ｜ **to** fullwechat 后端（agent-server）
 > **真相源** `agentic-contracts` 仓（本文件）—— AMR 定义契约，fullwechat 实现 §5。口吻学习（§4）由 AMR 实现。
 > **姊妹契约** `../message/canonical.md`（`authored_by` 并入其中，§4.1）/ `../send-target/send-target.md` / `../group-metadata/group-metadata.md` / `../moments/read-like.md` + `../moments/publish.md`。

@@ -92,7 +92,7 @@
 
 **转写优先后端提供（王总 2026-06-28 钦定）**：微信自带「语音转文字」，让后端转好、连文字一起吐，AMR 直接显示——**无需专门建本地 ASR 引擎**。职责：
 
-- **后端（fullwechat 仁德 / PowerData 老二）**：语音**优先用自身能力（微信自带语音转文字）转好 → 连 `media.transcript` 一起吐**；同时给 `ref`(取件端点，返回解密原始字节如 silk) + `mime` + `duration`（供播放 / AMR 兜底）。**能转就转，转不了就只给 ref。**
+- **后端（fullwechat / PowerData）**：语音**优先用自身能力（微信自带语音转文字）转好 → 连 `media.transcript` 一起吐**；同时给 `ref`(取件端点，返回解密原始字节如 silk) + `mime` + `duration`（供播放 / AMR 兜底）。**能转就转，转不了就只给 ref。**
 - **AMR**：
   1. **后端给了 `transcript`** → ingest 直接写 `media.transcript`、气泡挂字，**不再转**（首选路径）。
   2. 后端没给 transcript 但有 `ref` **且**配了 ASR 端点 → AMR **兜底**转写（`asr.py`，provider-agnostic、LLM-optional：GET ref 带 bearer auth → 转码 silk→wav → ASR → 写 transcript）。**默认不配 ASR 端点**（首选靠后端/微信转写）。

@@ -4,7 +4,7 @@
 # 王总钦定：AMR（@gthneo）统一拥有所有业务契约（含 moments-publish），不按"谁起草谁持有"分散。
 # 唯一例外：ops-agent/ 由 fullwechat 持有（约束"怎么运维 fullwechat 后端自己"）。
 #
-# 注：@gthneo 是 AMR/仁德 的 GitHub handle 占位；fullwechat 团队的 handle 待补
+# 注：@gthneo 是 AMR 的 GitHub handle 占位；fullwechat 团队的 handle 待补
 # （下面以注释标出 "fullwechat 持有"，建仓接 GitHub 后替换为其真实 handle/team）。
 
 # 默认：仓内未单独指派的一切（含 README / VERSIONING / CODEOWNERS 自身）归 AMR
