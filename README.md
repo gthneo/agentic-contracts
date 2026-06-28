@@ -64,14 +64,28 @@
 
 ---
 
-## 怎么被依赖（占位 · 机制讨论中）
+## 被依赖方式（A/A/先A后B）
 
-## 被依赖方式
+各消费方（AMR / AMP / fullwechat / PowerData …）这样拿到本仓契约的某个**固定版本**：
 
-各消费方（AMR / AMP / fullwechat / PowerData …）如何拿到本仓契约的某个固定版本，
-当前**机制讨论中（TBD）**。初步方向：**CI 在发包 / 发布时同步**——本仓打 tag / 发布时，
-由 CI 把契约版本同步给下游（git submodule / 发包 / 镜像目录等候选，未定）。
-在该机制落地前，各方以本仓某个 commit / tag 为准，手工对齐 `VERSIONING.md` 的兼容矩阵。
+1. **工件 = 语言无关的 git tag + GitHub Release tarball**。本仓打 `v*` tag →
+   `.github/workflows/release.yml` 自动切一个 Release，附 specs + fixtures 的 tarball。
+   tag 就是工件，**不依赖任何语言 / 包管理器**，谁都能拉。
+2. **消费方 vendor 一份提交进自己仓的只读副本**（pin 在某个 tag）。不在运行时拉，而是把
+   契约树**复制进自己仓 commit**（如 AMR `vendor/contracts/`），→ 构建 / 测试零网络、可复现、可 diff 审。
+   升级版本 = 跑同步脚本拉新 tag、人审 diff、commit。
+   **参考实现：AMR [`scripts/sync-contracts.sh`](https://github.com/gthneo/agenticmessagerouter/blob/main/scripts/sync-contracts.sh)**
+   （`clone --depth 1 --branch <tag>` → 复制 tracked 文件 → pin 在 `CONTRACTS_VERSION`；幂等、public-safe）。
+3. **先拉式（pull-based）后推式**。当前是**消费方主动拉**固定 tag（先 A）；将来再叠**推式**
+   同步 / 通知（后 B，如发新 tag 时 CI 通知下游 / 自动开 bump PR）。先把拉式跑顺、再加推式。
+4. **消费方 CI 的两道牙齿**：
+   - **一致性 fixtures**：跑 `fixtures/`（vendored 进来的）当 conformance —— 自己的解析器/校验器
+     吃下全部合规信封 = 绿，吃不下 = 红（实现与契约漂移了）。
+   - **运行时边界校验**：在 ingest 边界做语义校验（`fixtures/conformance.md` 的口径，
+     首条 = `msg_id` 必须全局唯一）+ msg_key 碰撞检测，把「schema 过了但语义错」的 bug
+     从静默变响亮。参考实现：AMR `src/jl/contract_validate.py` + `db.insert_messages`。
+
+> 演进规则细节（两条版本轴、双向握手、兼容矩阵）见 [`VERSIONING.md`](./VERSIONING.md)。
 
 ---
 
