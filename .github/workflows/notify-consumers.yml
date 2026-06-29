@@ -1,0 +1,110 @@
+# notify-consumers — 后B 推式：发新 v* tag → 给每个已登记消费方仓自动开一个 bump PR。
+#
+# A/A/先A后B 里的「后B」：先A(拉式,消费方主动拉固定 tag)已落;本工作流补上「推式」——
+# 契约发版后,下游不必靠人记得手动转 handoff,自动收到一个「改 CONTRACTS_VERSION + 同步 vendor」
+# 的 PR,触发该仓自己的 conformance/drift CI 变绿,人审后 merge。
+#
+# 守宪法(00-CONSTITUTION):只**开 PR、绝不自动 merge**(人是主角,最后一道闸留人)。幂等:同 tag
+# 不重复开 PR。消费方清单 = 仓根 consumers.json(新增消费方只改它,不改本文件)。
+#
+# 激活前提(人的一次性动作):仓 secret `CONTRACTS_SYNC_TOKEN` = 一个对各消费方仓有
+# `contents:write` + `pull_requests:write` 的 token(PAT 或 GitHub App)。默认 GITHUB_TOKEN
+# 不能跨仓写,故必须显式给。长期并入 #74 身份分权(bot 账号/Org+Teams)。无此 secret → 工作流
+# 在 checkout 消费方仓时失败(响亮,不静默)。
+name: notify-consumers
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set
+        # 只取已启用的 consumers(不含 _pending 占位)。
+        run: echo "matrix=$(jq -c '{include: .consumers}' consumers.json)" >> "$GITHUB_OUTPUT"
+
+  bump:
+    needs: load
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # 一个消费方失败不挡其它
+      matrix: ${{ fromJson(needs.load.outputs.matrix) }}
+    steps:
+      - name: Checkout consumer (${{ matrix.repo }})
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.branch }}
+          token: ${{ secrets.CONTRACTS_SYNC_TOKEN }}
+          fetch-depth: 0
+          path: consumer
+
+      - name: Bump contracts version + open PR (HITL — 不自动 merge)
+        working-directory: consumer
+        env:
+          TAG: ${{ github.ref_name }}
+          BRANCH: ${{ matrix.branch }}
+          SYNC_CMD: ${{ matrix.syncCmd }}
+          VERSION_FILE: ${{ matrix.versionFile }}
+          REPO: ${{ matrix.repo }}
+          GH_TOKEN: ${{ secrets.CONTRACTS_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          BR="contracts-bump-${TAG}"
+
+          # 幂等：同 tag 的 bump PR/分支已存在就跳过，不重复开。
+          if [ -n "$(gh pr list --head "$BR" --state all --json number -q '.[].number')" ]; then
+            echo "::notice::PR for $BR already exists on $REPO — skip (idempotent)"
+            exit 0
+          fi
+
+          git config user.name "agentic-contracts-bot"
+          git config user.email "noreply@anthropic.com"
+          git checkout -b "$BR"
+
+          # 同步：有该仓自己的 sync 命令就跑它（如 AMR 的 sync-contracts.sh，会写 vendor/ +
+          # CONTRACTS_VERSION）；没有就把 tag 直接写进 versionFile（通用兜底）。
+          if [ -n "${SYNC_CMD:-}" ]; then
+            eval "$SYNC_CMD"
+          else
+            printf '%s\n' "$TAG" > "$VERSION_FILE"
+          fi
+
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "::notice::$REPO already at $TAG — nothing to bump, skip"
+            exit 0
+          fi
+
+          git add -A
+          git commit -m "chore(contracts): bump to ${TAG}
+
+自动 bump：agentic-contracts 发布 ${TAG}。由 notify-consumers 工作流开此 PR（后B 推式）。
+人审后 merge —— 绝不自动合（00-CONSTITUTION 人是主角）。"
+          git push -u origin "$BR"
+
+          gh pr create \
+            --base "$BRANCH" \
+            --head "$BR" \
+            --title "chore(contracts): bump to ${TAG}" \
+            --body "$(cat <<EOF
+## 自动 bump（后B 推式）
+
+\`agentic-contracts\` 发布 **${TAG}** → 本 PR 由 \`notify-consumers\` 工作流自动开，把本仓的契约版本同步到 ${TAG}。
+
+- Release / changelog：https://github.com/gthneo/agentic-contracts/releases/tag/${TAG}
+- 本 PR 触发本仓自己的 **conformance / vendor-drift CI**；绿 = 实现仍贴合契约。
+- **HITL**：人审 CI + diff 后 merge —— 工作流**绝不自动合**（00-CONSTITUTION 人是主角）。
+
+> 由 agentic-contracts notify-consumers 自动生成。消费方清单见该仓 \`consumers.json\`。
+EOF
+)"
+          echo "::notice::opened bump PR on $REPO for $TAG"

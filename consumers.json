@@ -1,0 +1,26 @@
+{
+  "_comment": "下游消费方注册表 —— 发新 v* tag 时 .github/workflows/notify-consumers.yml 按此逐个开 bump PR(后B 推式)。新增消费方只加一项,无需改 workflow。",
+  "_fields": {
+    "repo": "owner/name(GitHub)",
+    "branch": "目标分支(PR base)",
+    "versionFile": "记录契约版本的文件(无 syncCmd 时,workflow 直接把 tag 写进它)",
+    "syncCmd": "可选;该仓自己的同步命令(会在仓根跑,环境变量 $TAG=新 tag)。给了就跑它,没给就 echo $TAG > versionFile"
+  },
+  "consumers": [
+    {
+      "repo": "gthneo/agenticmessagerouter",
+      "branch": "master",
+      "versionFile": "CONTRACTS_VERSION",
+      "syncCmd": "bash scripts/sync-contracts.sh \"$TAG\""
+    }
+  ],
+  "_pending": [
+    {
+      "_note": "pw仁德 对齐其 vendoring 约定(分支/版本文件/sync 脚本)后加入。占位,未启用。",
+      "repo": "gthneo/powerdata-wx",
+      "branch": "main",
+      "versionFile": "CONTRACTS_VERSION",
+      "syncCmd": ""
+    }
+  ]
+}
