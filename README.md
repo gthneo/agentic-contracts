@@ -79,8 +79,12 @@
    升级版本 = 跑同步脚本拉新 tag、人审 diff、commit。
    **参考实现：AMR [`scripts/sync-contracts.sh`](https://github.com/gthneo/agenticmessagerouter/blob/main/scripts/sync-contracts.sh)**
    （`clone --depth 1 --branch <tag>` → 复制 tracked 文件 → pin 在 `CONTRACTS_VERSION`；幂等、public-safe）。
-3. **先拉式（pull-based）后推式**。当前是**消费方主动拉**固定 tag（先 A）；将来再叠**推式**
-   同步 / 通知（后 B，如发新 tag 时 CI 通知下游 / 自动开 bump PR）。先把拉式跑顺、再加推式。
+3. **先拉式（pull-based）后推式**。**先 A（拉式）** = 消费方主动拉固定 tag（`sync-contracts.sh <tag>`）。
+   **后 B（推式）已落地** = [`.github/workflows/notify-consumers.yml`](.github/workflows/notify-consumers.yml)：
+   发新 `v*` tag → 按仓根 [`consumers.json`](consumers.json) 给每个已登记消费方仓**自动开一个 bump PR**
+   （改 `CONTRACTS_VERSION` + 同步 vendor），触发该仓自己的 conformance/drift CI。
+   **HITL：只开 PR、人审后 merge，绝不自动合**。激活需一次性配 secret `CONTRACTS_SYNC_TOKEN`
+   （跨仓写权限的 PAT/App；默认 `GITHUB_TOKEN` 不能跨仓写，长期并入身份分权方案）。
 4. **消费方 CI 的两道牙齿**：
    - **一致性 fixtures**：跑 `fixtures/`（vendored 进来的）当 conformance —— 自己的解析器/校验器
      吃下全部合规信封 = 绿，吃不下 = 红（实现与契约漂移了）。
