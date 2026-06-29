@@ -46,9 +46,8 @@
   "is_mentioned": false,
   "quote": {
     "author": "张三",
-    "text": "季度报表初稿",
     "refKind": "file",
-    "refText": "Q2-report.pdf"
+    "refText": "季度报表初稿"
   }
 }
 ```
@@ -163,7 +162,7 @@
 | 49.19 / 49.24 | 合并转发 / 收藏笔记 | `chat_history` | `chat_history{title, items?}`（递归解 recordinfo；解不动只给 title） |
 | 49.33 / 49.36 | 小程序 | `miniprogram` | `miniprogram{title, source, url}` ⚠ **33/36 都要认** |
 | 49.51 / 49.63 | 视频号 / 视频号直播 | `link` | `link{title:nickname/desc, source:"视频号"}`（无独立 kind，归 link） |
-| 49.57 | QUOTE 引用回复 | `quote` | `quote{author:displayname, text:被引content, refKind:map(refermsg.type), refText}`；顶层 `text`=回复正文。**递归按 refermsg.type 解被引** |
+| 49.57 | QUOTE 引用回复 | `quote` | `quote{author:displayname, refKind:map(refermsg.type), refText:被引content display}`；顶层 `text`=回复正文（**quote 子对象内不放 `text`**，对齐 §2.1）。**递归按 refermsg.type 解被引** |
 | 49.62 | PAT 拍一拍（appmsg 形态） | `system` | `system{event:pat, actor, text}` |
 | 49.87 | CHATROOM_NOTICE 群公告 | `system` | `system{event:notice, text}`（复用 recordinfo） |
 | 49.2000 | TRANSFER 转账 | `transfer` | `payment{amount:feedesc, memo:pay_memo, stage:paysubtype}` |
