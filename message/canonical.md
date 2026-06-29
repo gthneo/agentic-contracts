@@ -3,7 +3,8 @@
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`message/` → AMR/@gthneo）。
 
 > **日期** 2026-06-26（含 v1.1 `msg_id` 加严口径，见 §2.1；**v1.2 读空必可区分 / 读覆盖声明 / `ts` 读路径不丢 / 公众号契约化，见 §6.4 + C6**）｜ **状态** 提案（待各通道后端评估实现）
-> **v1.2 兼容性**：纯加法（`success=数组` 不变、`ts` 本就必填）→ schema 仍 `message.canonical/1`（**minor**）。新增 = 读不可用的 409 信号 + capabilities `read` 块 + C6 口径；消费方应处理新的 409/工具错误。
+> **v1.2 兼容性**：对**消费成功读**纯加法（`success=数组` 不变、`ts` 本就必填）→ schema 仍 `message.canonical/1`（**minor**）。新增 = 读不可用的 409 信号 + capabilities `read` 块 + C6 口径；消费方应处理新的 409/工具错误。
+> ⚠️ **生产侧收紧**：`[]` 的语义被**重定义**——从前「读不到 or 真 0」二义，现在 `[]` 带保证「真 0 + 覆盖完整」。今天任何在密钥缺失时回 `[]` 的后端**即变为不合规**，须改吐 409。判作 minor 仅因本契约仍是**提案**、尚无已部署的合规后端；一旦有后端实现，此为破坏性收紧，须在该后端版本里显式声明。
 > **适用范围** **一切消息通道（Message Channels）**：微信 / 电话 / 飞书 / iMessage / 企微 / 未来任意。每个通道后端都遵守本契约。
 > **定义方** AgenticMessageRouter (AMR / the Router) —— 契约唯一真相源在 `agentic-contracts` 仓（本文件），AMR(@gthneo) own。
 > **实现方** 各通道后端，**各自独立仓库**（如 `gthneo/powerdata`、fullwechat 后端仓 …），引用本契约实现；每通道一份**映射附录**（微信见附录 A）。
@@ -253,10 +254,13 @@
     } }
     ```
   - **MCP**（`read_messages`）：返回**工具错误**（`isError: true`，体同上），**绝不回 `[]`**。
-- `reason` 是开放小枚举：`key_unavailable`（分片密钥没提）/ `table_unavailable`（密钥已解但该 talker
+- `reason` 是**封闭**小枚举（`unknown` 即兜底，新增值走本仓 PR + minor；与 `conformance.py`
+  `READ_REASONS` 一致）：`key_unavailable`（分片密钥没提）/ `table_unavailable`（密钥已解但该 talker
   消息表缺失/未映——如 2026-06-29 **Roy 孤例**：会话有 `lastMsgLocalId` 却 per-chat 读空）/ `unknown`
   （说不清、但**确实无法确认覆盖**）。**原则压倒细节：后端凡不能确认该会话覆盖完整，就必须给信号、
   不许回裸空数组。**
+- 注：`coverage` 出现在两处——§6.2 capabilities 的 `read.coverage` 是**后端级**能力快照，
+  本节 `error.coverage` 是**单次信号**里的现场快照；同名、不同粒度，皆可选。
 - 为什么选 **409**（而非 `200`+对象）：非 2xx **逼**消费方分支处理（多数 HTTP client 对非 2xx 抛错），
   这才是 loud-fail；`200`+非数组体会被老消费方静默误迭代 → 又制造一种哑失败，且破坏「success=数组」。
   409 = 已知、reseed 后可重试的命名状态。
