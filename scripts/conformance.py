@@ -73,6 +73,32 @@ def validate_envelope(env: object) -> list[str]:
     return viol
 
 
+# C6（conformance.md）：读不可用信号体的结构闸。读调用读不到时不得回空数组，要回
+# {error:{code:"read_unavailable", reason, chatId, ...}}（REST 409 / MCP 工具错误的 body）。
+READ_REASONS = frozenset({"key_unavailable", "table_unavailable", "unknown"})
+
+
+def validate_read_signal(obj: object) -> list[str]:
+    """对单个「读不可用」信号体返回违规列表（[] = 合规）。纯函数，永不抛。
+
+    口径见 message/canonical.md §6.4 + conformance.md C6：必须有 error.code=="read_unavailable"
+    + reason 落 READ_REASONS + 非空 chatId。coverage 可选。
+    """
+    if not isinstance(obj, dict):
+        return [f"read-signal is not an object (got {type(obj).__name__})"]
+    err = obj.get("error")
+    if not isinstance(err, dict):
+        return ["read-signal missing object field: error (C6)"]
+    viol: list[str] = []
+    if err.get("code") != "read_unavailable":
+        viol.append(f'error.code must be "read_unavailable" (got {err.get("code")!r}) (C6)')
+    if err.get("reason") not in READ_REASONS:
+        viol.append(f"error.reason {err.get('reason')!r} not in {sorted(READ_REASONS)} (C6)")
+    if not (isinstance(err.get("chatId"), str) and err.get("chatId")):
+        viol.append("error.chatId must be a non-empty string (C6)")
+    return viol
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
     fixtures_dir = root / "fixtures" / "message-canonical"
@@ -110,7 +136,25 @@ def main(argv: list[str]) -> int:
         if not viol:
             print(f"  [ok]   {f.name}")
 
-    print(f"\nconformance: {len(files)} fixtures, {total_viol} violation(s)")
+    # C6：读不可用信号体（另一套校验，单独目录，不与信封混淆）。
+    read_dir = root / "fixtures" / "read-contract"
+    read_files = sorted(read_dir.glob("*.json"))
+    for f in read_files:
+        try:
+            obj = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  [FAIL] {f.name}: cannot parse JSON: {e}", file=sys.stderr)
+            total_viol += 1
+            continue
+        viol = validate_read_signal(obj)
+        for v in viol:
+            print(f"  [FAIL] {f.name}: {v}", file=sys.stderr)
+        total_viol += len(viol)
+        if not viol:
+            print(f"  [ok]   {f.name} (read-signal)")
+
+    print(f"\nconformance: {len(files)} envelope + {len(read_files)} read-signal fixtures, "
+          f"{total_viol} violation(s)")
     if total_viol:
         print("conformance: RED — fixtures drifted from message.canonical contract", file=sys.stderr)
         return 1
