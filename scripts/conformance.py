@@ -21,10 +21,12 @@ import sys
 
 # --- canonical 口径（与 message/canonical.md §2.1 + §3 一致；漂移先改契约）-----------
 
-# kind 封闭枚举 —— message/canonical.md §3（15 个值，conformance.md C4）。
+# kind 封闭枚举 —— message/canonical.md §3（18 个值，conformance.md C4）。
+# 2026-07-03 王总钦定 +3：channels(视频号) / friend_verify(好友验证) / call(通话)。
 CANONICAL_KINDS = frozenset({
     "text", "image", "voice", "video", "file", "link", "quote", "miniprogram",
     "chat_history", "location", "sticker", "transfer", "red_packet", "system", "unknown",
+    "channels", "friend_verify", "call",
 })
 
 # 每条信封必填的顶层字段（§2.1）。
@@ -99,6 +101,47 @@ def validate_read_signal(obj: object) -> list[str]:
     return viol
 
 
+RICH_FILE_CDN = frozenset({"recoverable", "expired", "unknown"})
+RICH_FILE_STATUS = frozenset({"local", "recoverable", "expired"})
+RICH_FILE_REQUIRED = ("file_id", "name", "provenance", "has_local", "cdn", "status", "retrieval_path")
+
+
+def validate_rich_file(obj: object) -> list[str]:
+    """对单个 rich_file item 返回违规列表（[] = 合规）。纯函数，永不抛。
+
+    口径见 rich-file/rescue-archive.md §2：必填字段 / cdn·status 落枚举 /
+    status 是 has_local+cdn 的纯派生（local 优先，须一致）/ provenance.msg_id 非空（归类钩子）。
+    """
+    if not isinstance(obj, dict):
+        return [f"rich_file is not an object (got {type(obj).__name__})"]
+    viol: list[str] = []
+    for fld in RICH_FILE_REQUIRED:
+        if fld not in obj:
+            viol.append(f"rich_file missing required field: {fld} (§2)")
+    if obj.get("cdn") not in RICH_FILE_CDN:
+        viol.append(f"cdn {obj.get('cdn')!r} not in {sorted(RICH_FILE_CDN)} (§2)")
+    if obj.get("status") not in RICH_FILE_STATUS:
+        viol.append(f"status {obj.get('status')!r} not in {sorted(RICH_FILE_STATUS)} (§2)")
+    hl, cdn, st = obj.get("has_local"), obj.get("cdn"), obj.get("status")
+    if isinstance(hl, bool):
+        derived = "local" if hl else ("recoverable" if cdn == "recoverable"
+                                      else "expired" if cdn == "expired" else None)
+        if derived is not None and st != derived:
+            viol.append(f"status {st!r} 与 has_local={hl}/cdn={cdn!r} 不一致（应派生为 {derived!r}，§2 local 优先）")
+    else:
+        viol.append("has_local must be a bool (§2)")
+    prov = obj.get("provenance")
+    if not isinstance(prov, dict):
+        viol.append("provenance must be an object (§2.1)")
+    else:
+        mid = prov.get("msg_id")
+        if not (isinstance(mid, str) and mid):
+            viol.append("provenance.msg_id must be a non-empty string (§2.1 归类钩子 = message msg_id)")
+        if not (isinstance(prov.get("chat_id"), str) and prov.get("chat_id")):
+            viol.append("provenance.chat_id must be a non-empty string (§2.1)")
+    return viol
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
     fixtures_dir = root / "fixtures" / "message-canonical"
@@ -153,12 +196,39 @@ def main(argv: list[str]) -> int:
         if not viol:
             print(f"  [ok]   {f.name} (read-signal)")
 
-    print(f"\nconformance: {len(files)} envelope + {len(read_files)} read-signal fixtures, "
-          f"{total_viol} violation(s)")
+    # rich-file/rescue-archive.md §2：富文件 item（另一套校验，单独目录）。
+    rich_dir = root / "fixtures" / "rich-file"
+    rich_files = sorted(rich_dir.glob("*.json"))
+    seen_prov_ids: dict[str, str] = {}
+    for f in rich_files:
+        try:
+            obj = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  [FAIL] {f.name}: cannot parse JSON: {e}", file=sys.stderr)
+            total_viol += 1
+            continue
+        viol = validate_rich_file(obj)
+        for v in viol:
+            print(f"  [FAIL] {f.name}: {v}", file=sys.stderr)
+        total_viol += len(viol)
+        prov = obj.get("provenance") if isinstance(obj, dict) else None
+        pid = prov.get("msg_id") if isinstance(prov, dict) else None
+        if isinstance(pid, str) and pid:
+            if pid in seen_prov_ids:
+                print(f"  [FAIL] {f.name}: provenance.msg_id {pid!r} collides with "
+                      f"{seen_prov_ids[pid]} (归类钩子须唯一)", file=sys.stderr)
+                total_viol += 1
+            else:
+                seen_prov_ids[pid] = f.name
+        if not viol:
+            print(f"  [ok]   {f.name} (rich-file)")
+
+    print(f"\nconformance: {len(files)} envelope + {len(read_files)} read-signal "
+          f"+ {len(rich_files)} rich-file fixtures, {total_viol} violation(s)")
     if total_viol:
-        print("conformance: RED — fixtures drifted from message.canonical contract", file=sys.stderr)
+        print("conformance: RED — fixtures drifted from contract", file=sys.stderr)
         return 1
-    print("conformance: GREEN — all fixtures conform to message.canonical")
+    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.rescue")
     return 0
 
 

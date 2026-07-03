@@ -1,0 +1,12 @@
+{
+  "schema": "message.canonical/1",
+  "channel": "wechat",
+  "direction": "in",
+  "kind": "friend_verify",
+  "text": "[好友验证] 我是王五，展会上加的",
+  "ts": 1751500100,
+  "sender": "王五",
+  "sender_id": "wxid_test_wangwu",
+  "msg_id": "srv_friendverify_0001",
+  "friend_verify": { "applicant": "王五", "applicant_id": "wxid_test_wangwu", "greeting": "我是王五，展会上加的", "scene": "群聊" }
+}
