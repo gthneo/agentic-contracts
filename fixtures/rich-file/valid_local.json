@@ -1,0 +1,13 @@
+{
+  "file_id": "md5_test_local_aaaa",
+  "name": "液冷方案报价.pdf",
+  "ext": "pdf",
+  "size": 348201,
+  "mime": "application/pdf",
+  "provenance": { "chat_id": "wxid_test_lisi", "chat_name": "李四", "sender_id": "wxid_test_lisi", "sender_name": "李四", "sent_at": 1751400000, "is_read": true, "msg_id": "srv_file_local_0001" },
+  "has_local": true,
+  "cdn": "expired",
+  "status": "local",
+  "retrieval_path": "/api/media/wxid_test_lisi/srv_file_local_0001",
+  "retrieval_url": "http://127.0.0.1:6174/api/media/wxid_test_lisi/srv_file_local_0001"
+}

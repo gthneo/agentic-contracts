@@ -82,8 +82,15 @@
 | `system` | `system` | `{event, actor?, text}` — `event ∈ {revoke, pat, member_change, notice}`；`actor` = 触发者显示名。 |
 | `media` | `image` `voice` `video` `sticker` | `{placeholder, ref?, mime?, duration?, transcript?}` — `placeholder` = `[图片]`/`[语音]`… ；**`ref` = 后端可直接 GET 到「解密后字节」的绝对 HTTP URL**（如 fullwechat `GET /api/media/{chat_id}/{msg_id}`），**不是微信 cdnurl**（cdnurl 加密、消费方下不了，真身只有后端能解）。AMR GET `ref` 时**带该通道的 bearer auth**。`mime`/`duration` 给得出就给。**`transcript`（语音转写）= 后端能转就给**（如微信自带语音转文字）；给了 AMR 直接显示、不再转 —— 见 §2.3。 |
 | `payment` | `transfer` `red_packet` | `{amount?, memo?, stage?}` — `amount` 如 `"¥100.00"`；`stage` = 收发阶段（survey: paysubtype 1/3/4/5/7）。 |
+| `channels` | `channels` | `{author, desc?, kind, cover?, url?}` — 视频号。`author` = 视频号作者/主播名；`kind ∈ {video, live}`（短视频 / 直播）；`cover` = 封面图 URL；`url` = 跳转链接。**out（发/转视频号）打桩·后续阶段**（先进后出）。 |
+| `friend_verify` | `friend_verify` | `{applicant, applicant_id?, greeting?, scene?}` — 好友验证（加好友=新关系起点，信息值钱）。`applicant` = 申请人显示名；`applicant_id` = 申请人 wxid；`greeting` = 验证语；`scene` = 来源场景（搜手机号/群/扫码…，给得出就给）。 |
+| `call` | `call` | `{media, state, duration?}` — 语音/视频通话（关系强信号，方向靠顶层 `direction` 判 in=接入/out=拨出）。`media ∈ {voice, video}`；`state ∈ {completed, missed, canceled, no_answer}`；`duration` = 通话秒数（completed 时给）。 |
 
 > 不在表内的字段一律不要求。后端只 emit 它解得出的子对象；缺失即「这一维我没解」，AMR 不报错。
+> **新子对象口径（2026-07-03 王总逐条钦定，见本仓 PR）**：`channels`/`friend_verify`/`call` 为 3 个新 kind 的结构化载体。三者 out 向均先打桩（先进后出）；`call.duration`/`friend_verify.scene` 等「给得出就给」，不阻塞上线。
+> **⚠️ out 落地守宪法**：`friend_verify`（主动发好友申请）/ `call`（发起通话）/ `channels`（发/转视频号）都是**对外动作**，将来实现出向时**必须继承 outbox→confirm 人审否决窗**（0 号宪法：对外动作系统永不替发）——实现方不得建自动发送路径。
+
+
 
 > **口径（2026-06-28 实现后裁定，AMR 钦定）**：
 > - **②长尾子对象字段名不阻塞上线**。`transfer`/`red_packet`/名片(42)/位置(48) 当前 AMR UI **退回纯文本气泡吃 `text` 地板**（payment 暂未做卡片），故 XML 字段名按现有就近映射先发即可，**不为真机抽样而阻塞**。唯一例外：**`payment.amount`（钱）**——做金额卡前，后端对 `feedesc`/`scenetext` 做一次真机抽样核对，确认金额字段对，再让 AMR 信它去显示/染色；名片/位置低风险，随手优化、不专门排期。
@@ -103,25 +110,32 @@
 - **AMR 不"发"语音**（发送链路纯文本 outbox→confirm）；要发语音用原生微信。
 - ⚠️ 勿与 `assist.py` 里的 `_voice_block`/`VOICE_GUIDE` 混淆——那是「**文字口吻**沉淀」（模仿用户语气），不是语音 ASR。
 
-## 3. Canonical `kind` 枚举（封闭，15 个）
+## 3. Canonical `kind` 枚举（封闭，18 个）
 
-| kind | 含义 | 主子对象 | UI 渲染（气泡已建，见 §7） |
-|---|---|---|---|
-| `text` | 纯文本 | — | 普通气泡 |
-| `image` | 图片 | `media` | 占位/缩略卡 |
-| `voice` | 语音 | `media` | 占位（+ transcript 行） |
-| `video` | 视频/小视频 | `media` | 占位 |
-| `file` | 文件 | `file` | 文件卡（名/大小） |
-| `link` | 链接·网页·图文·音乐 | `link` | 链接卡（标题/来源） |
-| `quote` | 引用回复 | `quote` | 正文 + 被引块 |
-| `miniprogram` | 小程序 | `miniprogram` | 卡片（标题/来源） |
-| `chat_history` | 合并转发·聊天记录 | `chat_history` | 卡片（标题 + 条数） |
-| `location` | 位置（静态/实时） | `location` | 地点卡 |
-| `sticker` | 动画表情/sticker | `media` | 占位 `[表情]` |
-| `transfer` | 转账 | `payment` | 金额卡 |
-| `red_packet` | 红包 | `payment` | 红包卡 |
-| `system` | 系统事件（撤回/拍一拍/群变更/公告） | `system` | 居中灰条 |
-| `unknown` | 无法归类 | — | 普通气泡（显示 `text` 占位） |
+> **in/out 方向列（AMR Inbox/Outbox 中枢哲学，王总 2026-07-03 钦定）**：每个 kind 标它 **in（读入）/ out（发出）** 各支持到什么程度。
+> `✅`=已支持 · `🔩`=契约已声明·实现打桩待后续（先进后出）· `⛔`=宪法禁（财务类系统永不替发·系统事件非人可发·语音走原生）。
+> 现状：AMR 出站链路（outbox→confirm）**仅文本**；其余出向多为 🔩，随「先进后出」逐步落地。
+
+| kind | 含义 | 主子对象 | in | out | UI 渲染（见 §7） |
+|---|---|---|---|---|---|
+| `text` | 纯文本 | — | ✅ | ✅ | 普通气泡 |
+| `image` | 图片 | `media` | ✅ | 🔩 | 占位/缩略卡 |
+| `voice` | 语音 | `media` | ✅ | ⛔（走原生微信，见 §2.3） | 占位（+ transcript 行） |
+| `video` | 视频/小视频 | `media` | ✅ | 🔩 | 占位 |
+| `file` | 文件 | `file` | ✅ | 🔩 | 文件卡（名/大小）·抢救见 `rich-file/rescue-archive.md` |
+| `link` | 链接·网页·图文·音乐 | `link` | ✅ | 🔩 | 链接卡（标题/来源） |
+| `quote` | 引用回复 | `quote` | ✅ | 🔩 | 正文 + 被引块 |
+| `miniprogram` | 小程序 | `miniprogram` | ✅ | 🔩 | 卡片（标题/来源） |
+| `chat_history` | 合并转发·聊天记录 | `chat_history` | ✅ | 🔩 | 卡片（标题 + 条数） |
+| `location` | 位置（静态/实时） | `location` | ✅ | 🔩 | 地点卡 |
+| `sticker` | 动画表情/sticker | `media` | ✅ | 🔩 | 占位 `[表情]` |
+| `channels` | 视频号 / 视频号直播 | `channels` | ✅ | 🔩（发/转视频号·后续阶段） | 视频号卡（作者/直播态） |
+| `friend_verify` | 好友验证（加好友申请） | `friend_verify` | ✅ | 🔩（主动发好友申请·后续） | 验证卡（申请人/验证语） |
+| `call` | 语音/视频通话事件 | `call` | ✅ | 🔩（发起通话·AMR 大概率不做） | 居中通话条（时长/未接） |
+| `transfer` | 转账 | `payment` | ✅ | ⛔（宪法禁·系统永不替你发钱） | 金额卡 |
+| `red_packet` | 红包 | `payment` | ✅ | ⛔（宪法禁） | 红包卡 |
+| `system` | 系统事件（撤回/拍一拍/群变更/公告） | `system` | ✅ | ⛔（系统事件非人可发） | 居中灰条 |
+| `unknown` | 无法归类 | — | ✅ | — | 普通气泡（显示 `text` 占位） |
 
 ## 4. 附录 A · 微信通道映射表（`channel:"wechat"`）
 
@@ -136,13 +150,13 @@
 | 1 | TEXT | `text` | — |
 | 3 | IMAGE | `image` | `media{placeholder:[图片], ref}` |
 | 34 | VOICE | `voice` | `media{placeholder:[语音], ref, transcript?}` |
-| 37 | VERIFYMSG 好友验证 | `system` | `system{event:notice, text:验证语, actor:申请人}` ⚠ ticket 见 §9 |
-| 42 | SHARECARD 名片 | `link` | `link{title:名片名, source:"名片"}`（退而求其次；无独立 kind） |
+| 37 | VERIFYMSG 好友验证 | `friend_verify` | `friend_verify{applicant:申请人, applicant_id:wxid, greeting:验证语, scene:来源场景}`（**独立 kind**，王总 2026-07-03；加好友=新关系起点，不再压成 notice） |
+| 42 | SHARECARD 名片 | `link` | `link{title:名片名, source:"名片"}`（**桩·王总 2026-07-03**：短期借 link；名片语义（被推荐人 wxid/电话）未结构化，待补独立 kind） |
 | 43 | VIDEO | `video` | `media{placeholder:[视频], ref}` |
 | 47 | EMOTICON 动画表情 | `sticker` | `media{placeholder:[表情], ref?}` |
 | 48 | LOCATION 静态位置 | `location` | `location{label, poi}` |
 | 49 | APPMSG 容器 | **看 §4.2 子类** | 按 appmsg.type 分流 |
-| 50/52/53 | VoIP 通话族 | `system` | `system{event:notice, text:通话提示}`（弱信号，可降级 unknown） |
+| 50/52/53 | VoIP 通话族 | `call` | `call{media:voice\|video, state:completed\|missed\|canceled\|no_answer, duration?}`（**独立 kind**，王总 2026-07-03；通话=关系强信号，方向靠顶层 direction） |
 | 51 | STATUSNOTIFY 状态同步 | **过滤** | 协议噪声，后端**不应 emit**（见 §5）；若 emit 则 `unknown` |
 | 62 | MICROVIDEO 小视频 | `video` | `media{placeholder:[小视频]}` |
 | 66 | （冲突：企业名片/红包） | `unknown` | 见 §9 冲突①，按实测后端口径择一，默认 unknown |
@@ -161,9 +175,10 @@
 | 49.6 | ATTACH/FILE 文件 | `file` | `file{name:title, ext:fileext, size:totallen}` |
 | 49.8 | EMOJI（分享表情） | `sticker` | `media{placeholder:[表情]}`（与顶层 47 同归 sticker，§9 冲突⑤计数） |
 | 49.17 | 实时位置共享 | `location` | `location{label}` |
-| 49.19 / 49.24 | 合并转发 / 收藏笔记 | `chat_history` | `chat_history{title, items?}`（递归解 recordinfo；解不动只给 title） |
+| 49.19 | 合并转发 | `chat_history` | `chat_history{title, items?}`（递归解 recordinfo；解不动只给 title） |
+| 49.24 | 收藏笔记 | `chat_history` | **桩·王总 2026-07-03**：短期仍归 `chat_history`（注明「收藏笔记≠聊天记录」）；**未来阶段按内容就近分流**（纯文本→text / 带链接→link / 带文件→file），本方案先记录、后开发 |
 | 49.33 / 49.36 | 小程序 | `miniprogram` | `miniprogram{title, source, url}` ⚠ **33/36 都要认** |
-| 49.51 / 49.63 | 视频号 / 视频号直播 | `link` | `link{title:nickname/desc, source:"视频号"}`（无独立 kind，归 link） |
+| 49.51 / 49.63 | 视频号 / 视频号直播 | `channels` | `channels{author:nickname, desc?, kind:video\|live, cover?, url?}`（**独立 kind**，王总 2026-07-03；in 定稿，out 发/转视频号打桩·后续） |
 | 49.57 | QUOTE 引用回复 | `quote` | `quote{author:displayname, refKind:map(refermsg.type), refText:被引content display}`；顶层 `text`=回复正文（**quote 子对象内不放 `text`**，对齐 §2.1）。**递归按 refermsg.type 解被引** |
 | 49.62 | PAT 拍一拍（appmsg 形态） | `system` | `system{event:pat, actor, text}` |
 | 49.87 | CHATROOM_NOTICE 群公告 | `system` | `system{event:notice, text}`（复用 recordinfo） |

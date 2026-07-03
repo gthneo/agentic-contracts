@@ -1,0 +1,12 @@
+{
+  "schema": "message.canonical/1",
+  "channel": "wechat",
+  "direction": "in",
+  "kind": "channels",
+  "text": "[视频号] 液冷散热技术分享",
+  "ts": 1751500000,
+  "sender": "张三",
+  "sender_id": "wxid_test_zhangsan",
+  "msg_id": "srv_channels_0001",
+  "channels": { "author": "李四工作室", "desc": "液冷散热技术分享", "kind": "video", "url": "https://channels.example/v/abc" }
+}

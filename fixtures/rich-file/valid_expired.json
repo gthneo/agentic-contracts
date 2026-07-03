@@ -1,0 +1,10 @@
+{
+  "file_id": "md5_test_expired_cccc",
+  "name": "旧年会照片打包.zip",
+  "ext": "zip",
+  "provenance": { "chat_id": "chatroom_test_001@chatroom", "chat_name": "测试群", "sender_id": "wxid_test_zhangsan", "sender_name": "张三", "sent_at": 1748000000, "msg_id": "srv_file_expired_0001" },
+  "has_local": false,
+  "cdn": "expired",
+  "status": "expired",
+  "retrieval_path": "/api/media/chatroom_test_001@chatroom/srv_file_expired_0001"
+}

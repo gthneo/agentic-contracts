@@ -1,0 +1,12 @@
+{
+  "file_id": "md5_test_recov_bbbb",
+  "name": "算力采购合同.docx",
+  "ext": "docx",
+  "size": 91820,
+  "provenance": { "chat_id": "wxid_test_wangwu", "sender_id": "wxid_test_wangwu", "sender_name": "王五", "sent_at": 1751490000, "is_read": false, "msg_id": "srv_file_recov_0001" },
+  "has_local": false,
+  "cdn": "recoverable",
+  "status": "recoverable",
+  "expire_at": 1752090000,
+  "retrieval_path": "/api/media/wxid_test_wangwu/srv_file_recov_0001"
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "message.canonical/1",
+  "channel": "wechat",
+  "direction": "out",
+  "kind": "call",
+  "text": "[语音通话] 通话时长 03:12",
+  "ts": 1751500200,
+  "sender": "李四",
+  "sender_id": "wxid_test_lisi",
+  "msg_id": "srv_call_0001",
+  "call": { "media": "voice", "state": "completed", "duration": 192 }
+}
