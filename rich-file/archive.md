@@ -1,6 +1,6 @@
 # 富文件归档契约 v2 — Rich-File Archive Contract（Inbox 方向·常态下载归档）
 
-> schema 标识：`rich-file.archive/1` ｜ 状态：定稿 v1.1（2026-07-03，Phase 2）
+> schema 标识：`rich-file.archive/1` ｜ 状态：定稿 v1.2（2026-07-03，Phase 2 + 实现方 4 点澄清）
 > **from** AgenticMessageRouter (AMR，定义方 / 消费方) ｜ **for** fullwechat / PowerData-WX（实现方）
 > **真相源** 本仓（`agentic-contracts`）。0 号宪法统领。
 > **姊妹契约** `message/canonical.md`（本契约是其 `file`-kind 的归档扩展，不另起数据模型）。
@@ -55,10 +55,10 @@
 | 端点 | 作用 | 说明 |
 |---|---|---|
 | `GET /api/files?chat=&since=&status=` | **列举** | rich_file item 列表。**分页必做**（`limit`/`offset` 或 cursor，capabilities 声明），不一次拉全。 |
-| `POST /api/files/download {chat, msg_id?}` | **主动下载（常态·写侧）** | **单件**（给 `msg_id`）或**会话级批量**（只给 `chat` → 下该会话所有 `cdn=recoverable`）。对 `recoverable` 用 XML 的 cdnurl+key 走 **CDN 直取落盘**（不碰 GUI）→ `has_local` 转 true。**批量走异步**：立即返回 `{accepted, job?}`，进度经 `GET /api/files` 的 status 轮询看（大文件几十~几百 MB，不阻塞消费方超时）。单件小文件可同步返回归档后 item。失败给 typed error（§5）。 |
-| `GET /api/media/{chat}/{msg_id}` | **取件（保持纯净）** | 只服务**已落盘（has_local）**的明文/解密字节。未落盘 → typed `404 not_local`（**不做同步 lazy CDN 下载**，避免击穿消费方 GET 超时）。要字节先 `POST download` 预热、再 GET。 |
+| `POST /api/files/download {chat, msg_id?}` | **主动下载（常态·写侧）** | **单件**（给 `msg_id`）或**会话级批量**（只给 `chat` → 下该会话所有 `cdn=recoverable`）。对 `recoverable` 用 XML 的 cdnurl+key 走 **CDN 直取落盘**（明文字节直路·不碰 GUI）→ `has_local` 转 true。**批量走异步**：立即返回 `{accepted}`（本次入队件数，**必给**）；**进度真相源 = `GET /api/files` 的 status 迁移（`recoverable→local`）轮询**，后端**不持有 job 状态机、不另立 job 查询端点**（守无状态）。`job` 字段**可选·纯 informational**（后端要给个计数/批次号可给，但消费方不得依赖它回查进度）。单件小文件可同步返回归档后 item。失败给 typed error（§5）。 |
+| `GET /api/media/{chat}/{msg_id}` | **取件（保持纯净）** | 只服务**已落盘（has_local）**字节（**不做同步 lazy CDN 下载**，避免击穿消费方 GET 超时）。未落盘按 cdn 态分**两种终码**：`cdn=recoverable`（能下但还没下）→ **`404 {code:"not_local"}`**（消费方 `POST download` 预热再 GET）；`cdn=expired`（CDN 已删·下不回来）→ **`410 {code:"expired"}`**（终态「没了」，消费方**别再试预热**）。两码分开,免消费方对 expired 件白试一轮预热。 |
 | `POST /api/files/delete-local {chat, msg_id}` | **删本地副本 / 复位** | 删**本地下载的那份** → `has_local` 转 false（**不删微信原件**）。下载可逆的操作化落点（CRUD 铁律：Delete 一等、并↔拆可逆）。删前后端留痕；**清盘必 HITL，后端绝不自动删**。 |
-| `GET /api/capabilities` → `rich_files` | **能力声明** | `{ list, download, delete_local, auto_download_mb, base_url, local_bytes }`。`download`=写侧就绪位；`auto_download_mb`=微信**被动**下载阈值（实测 .28 = **100**，主动 download **不受此限**）；**`local_bytes`（`download:true` 时必填）**=本地归档占用字节——盘增长可见是「主动下载可被接受」的安全前提，也是清盘 HITL 的地基，故**不可选**（download 关时可省）。缺 `rich_files` 键 = 不支持，消费方优雅降级。 |
+| `GET /api/capabilities` → `rich_files` | **能力声明** | `{ list, download, delete_local, auto_download_mb, base_url, local_bytes }`。`download`=写侧就绪位；`auto_download_mb`=微信**被动**下载阈值（实测 .28 = **100**，主动 download **不受此限**）；**`local_bytes`（`download:true` 时必填）**=**整账号**归档目录（`<账号>/msg/file/`）本地占用字节**合计**（不按会话细分——保留策略要的是「看得见盘增长」，整账号一个数最省且够用）。盘增长可见是「主动下载可被接受」的安全前提，也是清盘 HITL 的地基，故**不可选**（download 关时可省）。缺 `rich_files` 键 = 不支持，消费方优雅降级。 |
 
 > **lazy-GET（可选·默认关）**：若后端要做「GET 未落盘时当场拉」，须做**显式 opt-in**（如 `GET …?lazy=1` 返回 `202 + Retry-After` 有界，消费方轮询），**不得**让默认 GET 同步阻塞下载。
 
@@ -73,7 +73,7 @@
 
 - **时效**：按 `expire_at` 升序，快到期先 `POST download`。
 - **`expired` 件**：`GET /api/files` **仍返回**（`status:"expired"`，只元数据 + provenance，无字节），不静默吞（对齐 message §6.4）。
-- **typed error（不裸 500）**：取不回 / 下不动时返回可区分错误码——`expired`（CDN 已删）/ `cdn_timeout`（窗口内但超时，可重试）/ `not_recoverable`（无 cdnurl/key）/ `too_large`（超后端上限）/ `not_local`（GET 未落盘）。结构对齐 message §6.4 read_unavailable：`{error:{code, msg?, chat_id?, msg_id?}}`。
+- **typed error（不裸 500）**：取不回 / 下不动时返回可区分错误码——`expired`（CDN 已删）/ `cdn_timeout`（窗口内但超时）/ `not_recoverable`（无 cdnurl/key）/ `too_large`（超后端上限）/ `not_local`（GET 未落盘·recoverable）。结构 `{error:{code, retryable, msg?, chat_id?, msg_id?}}`，对齐 message §6.4 read_unavailable。**`retryable`（bool·后端给·单一真相）**：可否重试由**后端**在 error 里显式标（如 `cdn_timeout`→`true`、`expired`/`not_recoverable`→`false`），**消费方直接读 `retryable`、不按 code 维护白名单**——以后加可重试码不用改消费方。
 - **分页**：大会话必分页，不一次拉全（对齐「大号慢后端有界」纪律）。
 - **降级**：后端无 `rich_files` 或 `download=false` → 消费方退回纯 `GET /api/media`（仅本地）+ message 流 `file`-kind 元数据，功能不缺、只是无主动下载。
 
