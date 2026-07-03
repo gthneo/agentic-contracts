@@ -1,7 +1,7 @@
 # rich-file conformance fixtures
 
 合成占位（张三/李四/王五、`wxid_test_*`、`md5_test_*`）—— 公开仓零真实 PII。
-对 `rich-file/rescue-archive.md` 的三个 status 态各一条冒烟样例：
+对 `rich-file/archive.md` 的三个 status 态各一条冒烟样例：
 
 - `valid_local.json` — `has_local=true`（本地有），派生 `status=local`；示范「本地有但 CDN 已过期」（丢了不可再抢）+ 绝对 `retrieval_url` 便利字段。
 - `valid_recoverable.json` — `has_local=false ∧ cdn=recoverable`，派生 `status=recoverable`；带 `expire_at`（排抢救优先级）+ 只给 `retrieval_path`（后端不知外部 base）。
