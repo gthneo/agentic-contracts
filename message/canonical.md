@@ -122,7 +122,7 @@
 | `image` | 图片 | `media` | ✅ | 🔩 | 占位/缩略卡 |
 | `voice` | 语音 | `media` | ✅ | ⛔（走原生微信，见 §2.3） | 占位（+ transcript 行） |
 | `video` | 视频/小视频 | `media` | ✅ | 🔩 | 占位 |
-| `file` | 文件 | `file` | ✅ | 🔩 | 文件卡（名/大小）·抢救见 `rich-file/rescue-archive.md` |
+| `file` | 文件 | `file` | ✅ | 🔩 | 文件卡（名/大小）·抢救见 `rich-file/archive.md` |
 | `link` | 链接·网页·图文·音乐 | `link` | ✅ | 🔩 | 链接卡（标题/来源） |
 | `quote` | 引用回复 | `quote` | ✅ | 🔩 | 正文 + 被引块 |
 | `miniprogram` | 小程序 | `miniprogram` | ✅ | 🔩 | 卡片（标题/来源） |

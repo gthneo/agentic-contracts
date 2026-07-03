@@ -109,7 +109,7 @@ RICH_FILE_REQUIRED = ("file_id", "name", "provenance", "has_local", "cdn", "stat
 def validate_rich_file(obj: object) -> list[str]:
     """对单个 rich_file item 返回违规列表（[] = 合规）。纯函数，永不抛。
 
-    口径见 rich-file/rescue-archive.md §2：必填字段 / cdn·status 落枚举 /
+    口径见 rich-file/archive.md §2：必填字段 / cdn·status 落枚举 /
     status 是 has_local+cdn 的纯派生（local 优先，须一致）/ provenance.msg_id 非空（归类钩子）。
     """
     if not isinstance(obj, dict):
@@ -196,7 +196,7 @@ def main(argv: list[str]) -> int:
         if not viol:
             print(f"  [ok]   {f.name} (read-signal)")
 
-    # rich-file/rescue-archive.md §2：富文件 item（另一套校验，单独目录）。
+    # rich-file/archive.md §2：富文件 item（另一套校验，单独目录）。
     rich_dir = root / "fixtures" / "rich-file"
     rich_files = sorted(rich_dir.glob("*.json"))
     seen_prov_ids: dict[str, str] = {}
@@ -228,7 +228,7 @@ def main(argv: list[str]) -> int:
     if total_viol:
         print("conformance: RED — fixtures drifted from contract", file=sys.stderr)
         return 1
-    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.rescue")
+    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive")
     return 0
 
 
