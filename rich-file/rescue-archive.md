@@ -63,6 +63,7 @@
 | `GET /api/files?chat=&since=&status=` | **列举** | 返回 rich_file item 列表。`chat` 按会话过滤；`since` unix 秒起点；`status` 按派生 status 过滤（`local`/`recoverable`/`expired`）。分页见 §5。 |
 | `GET /api/media/{chat}/{msg_id}` | **取件**（已有） | 返回明文/解密后字节。= `retrieval_path` 指向的端点。带该通道 bearer auth。 |
 | `POST /api/files/rescue {chat, msg_id}` | **主动抢救** | 对 `cdn=recoverable` 件，用 XML 的 cdnurl+key 趁窗口回 CDN 下载落盘 → `has_local` 转 true。返回抢救后的 rich_file item（或 error）。对 `expired` 件返回明确失败（不静默）。 |
+| `POST /api/files/forget {chat, msg_id}` | **删抢救副本/复位** | 删除**本地抢救的那份副本** → `has_local` 转 false（**不删微信原件**）。抢救可逆的操作化落点（本仓 CRUD 铁律：Delete 一等能力、并↔拆可逆）。删前后端应留痕。 |
 | `GET /api/capabilities` → `rich_files` | **能力声明** | `rich_files: {list: bool, rescue: bool, auto_download_mb: int, base_url: str}`。`base_url` = 取件绝对 base（拼 retrieval_path 用）；`auto_download_mb` = 桌面被动 auto-download 阈值（实测 .28 = 20）。缺 `rich_files` 键 = 后端不支持富文件，消费方优雅降级。 |
 
 ## 4. 选择策略（住 AMR，不进后端）
@@ -71,7 +72,7 @@
 - **策略住 AMR + 人**（宪法「人拿扳手」+「归类归 AMR」）：
   - **业务 / 小群 → 全量抢救**：AMR 自动对该会话的 `recoverable` 件逐条 `POST /rescue`（全量是确定性规则，非黑箱决策）。
   - **大群 → 只抢「客户认同」的**：人工 / 规则筛，AMR 只对选中的 `POST /rescue`。
-- **被动兜底保留**：桌面「文件自动下载 ≤N MB」（实测 .28 ON, N=20）继续生效——这是**桌面客户端**的既有行为、非 AMR/后端自动决策，低风险，保留；N 可调高多救大文件。
+- **被动兜底保留**：桌面「文件自动下载 ≤N MB」（实测 .28 ON, N=20）继续生效——这是**桌面客户端**的既有行为、非 AMR/后端自动决策，低风险，保留；N 可调高多救大文件（**调 N 仍须人手拨挡，非后端自调**——守宪法「自动挡位人手拨」）。
 - **不删原件**：抢救 = 多存一份本地副本，可逆（后续可删），**保留人的未来选择权**，不做不可逆决策。
 
 ## 5. 时效 / 分页 / 优雅降级
