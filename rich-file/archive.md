@@ -58,14 +58,15 @@
 | `POST /api/files/download {chat, msg_id?}` | **主动下载（常态·写侧）** | **单件**（给 `msg_id`）或**会话级批量**（只给 `chat` → 下该会话所有 `cdn=recoverable`）。对 `recoverable` 用 XML 的 cdnurl+key 走 **CDN 直取落盘**（不碰 GUI）→ `has_local` 转 true。**批量走异步**：立即返回 `{accepted, job?}`，进度经 `GET /api/files` 的 status 轮询看（大文件几十~几百 MB，不阻塞消费方超时）。单件小文件可同步返回归档后 item。失败给 typed error（§5）。 |
 | `GET /api/media/{chat}/{msg_id}` | **取件（保持纯净）** | 只服务**已落盘（has_local）**的明文/解密字节。未落盘 → typed `404 not_local`（**不做同步 lazy CDN 下载**，避免击穿消费方 GET 超时）。要字节先 `POST download` 预热、再 GET。 |
 | `POST /api/files/delete-local {chat, msg_id}` | **删本地副本 / 复位** | 删**本地下载的那份** → `has_local` 转 false（**不删微信原件**）。下载可逆的操作化落点（CRUD 铁律：Delete 一等、并↔拆可逆）。删前后端留痕；**清盘必 HITL，后端绝不自动删**。 |
-| `GET /api/capabilities` → `rich_files` | **能力声明** | `{ list, download, delete_local, auto_download_mb, base_url, local_bytes? }`。`download`=写侧就绪位；`auto_download_mb`=微信**被动**下载阈值（实测 .28 = **100**，主动 download **不受此限**）；`local_bytes`=本地归档占用字节（保留策略·供人/Agent 看盘增长）。缺 `rich_files` 键 = 不支持，消费方优雅降级。 |
+| `GET /api/capabilities` → `rich_files` | **能力声明** | `{ list, download, delete_local, auto_download_mb, base_url, local_bytes }`。`download`=写侧就绪位；`auto_download_mb`=微信**被动**下载阈值（实测 .28 = **100**，主动 download **不受此限**）；**`local_bytes`（`download:true` 时必填）**=本地归档占用字节——盘增长可见是「主动下载可被接受」的安全前提，也是清盘 HITL 的地基，故**不可选**（download 关时可省）。缺 `rich_files` 键 = 不支持，消费方优雅降级。 |
 
 > **lazy-GET（可选·默认关）**：若后端要做「GET 未落盘时当场拉」，须做**显式 opt-in**（如 `GET …?lazy=1` 返回 `202 + Retry-After` 有界，消费方轮询），**不得**让默认 GET 同步阻塞下载。
 
 ## 4. 选择策略（住 AMR，不进后端）
 
 - **后端 = 哑字节抓取器**：只 list + 按 `POST download` 下、按 `POST delete-local` 删、按 GET 取；**不内置「下谁 / 订阅谁」**。
-- **策略住 AMR + 人**（宪法「人拿扳手」+「归类归 AMR」）：业务/小群 → AMR 自动 `POST download {chat}` 会话级全下（确定性规则）；大群 → 人/规则筛，只下选中的。触发逐消息 / 会话订阅式由 AMR 定。
+- **策略住 AMR + 人**（宪法「人拿扳手」+「归类归 AMR」）：业务/小群 → AMR 可 `POST download {chat}` 会话级全下（确定性规则）；大群 → 人/规则筛，只下选中的。触发逐消息 / 会话订阅式由 AMR 定。
+  - **「按会话自动下载」本身是人可开关 / 可编辑的 gate，非 AMR 默认全开**（守宪法「不得设计甩手全自动、人被旁路」）——默认关或按人设的白名单会话开，人决定哪些会话值得常态落盘。
 - **被动兜底**：微信桌面「自动下载 ≤N MB」（实测 .28 N=**100**、ON）继续生效——桌面客户端既有行为、非本系统自动决策；调 N **仍须人手拨挡**，非后端自调。
 
 ## 5. 时效 / 分页 / 错误 / 优雅降级
@@ -90,7 +91,7 @@ AMR：ingest 拿到 `kind:"file"` → 需要字节时 `POST download` 预热 →
 
 - **人拿扳手**：下谁的选择策略住 AMR + 人，后端不自动决策「下谁」；被动 auto-download 是微信桌面原生行为、调阈值仍须人手拨。✅
 - **不可逆决策**：下载 = 可逆地多存一份本地副本（不删原件、`delete-local` 可撤），**护住人的未来选择权**，非替人做不可逆决策。✅
-- **清盘 HITL**：主动下载会长盘 → 契约要求后端上报 `local_bytes`（人/Agent 看得见增长）；**删除/清盘必人审，后端绝不自动清**。✅
+- **清盘 HITL**：主动下载会长盘 → 契约要求后端 `download:true` 时**必报** `local_bytes`（人/Agent 看得见增长，非可选）；**删除/清盘必人审，后端绝不自动清**。✅
 - **赋能不替代 · 算料是生产资料**：把易失的微信文档封装进契约（可判状态 + 可达取件 + 可区分错误），让它可流通、可归类、可增值。✅
 
 ## 8. 版本化 + 能力声明
