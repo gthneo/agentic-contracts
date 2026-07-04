@@ -2,7 +2,7 @@
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`group-metadata/` → AMR/@gthneo）。
 
-> **日期** 2026-06-28 ｜ **状态** 提案（待 fullwechat 后端实现）
+> **日期** 2026-06-28 ｜ **状态** **定稿 v1（AMR 定义方已定稿·待 fullwechat 实现）**（定稿日 2026-07-04）
 > **from** AgenticMessageRouter (AMR) ｜ **to** fullwechat 后端
 > **真相源** `agentic-contracts` 仓（本文件）—— AMR 定义契约，fullwechat 实现。
 > **姊妹契约** `../message/canonical.md`（消息）/ `../moments/read-like.md`（朋友圈）/ `../send-target/send-target.md`（发送）
@@ -156,4 +156,4 @@ Authorization: Bearer <token>
 
 ---
 
-*本契约版本：v1 / 2026-06-28。修订标 v1.1。*
+*本契约版本：v1（定稿）/ 2026-06-28 起草 · 2026-07-04 定稿。修订标 v1.1。*
