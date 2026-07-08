@@ -29,13 +29,13 @@
 1. **让一切 agent 好消费**：字段语义拍死、状态可判、取件端点可达、错误可区分（typed）。
 2. **真相 + 便利双给**：状态给「两轴真相 + 派生便利」，取件给「稳定 path + 绝对 url 便利」（见 §2）。
 3. **常态下载 · 时效为下限**：该留的就下；按到期戳排，快到期的别拖。`expired` 壳只留元数据（诚实告知「曾有已丢」）。
-4. **后端哑、AMR 掌舵**：后端无状态（list + 按请求 download / delete-local / 取件），**下谁、订阅谁的策略住 AMR + 人**（守宪法「人拿扳手」）。
+4. **后端哑、AMR 掌舵**：后端无状态（list + 按请求 download / delete-local / 取件），**下谁、订阅谁的策略值由 AMR + 人定**（守宪法「人拿扳手」）。（范围订阅策略对象的数据落点住 PD、人在 AMR 前端编辑——§4.5 Route A 细化；值仍人配。）
 
 ## 2. rich_file item 形态（Phase 1 两态模型，不变）
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
-| `file_id` | str | 是 | 稳定 id = **微信消息库里那条记录自带的文件 md5**（壳也有）。**身份不得用本地字节重派**——`file_id` 永远取消息库自带 md5，即便本地没落盘也有此 id。（**辨析**：*校验/匹配* 一个已落盘文件是不是某 item，按 `md5(盘上字节)==file_id` 认是**允许且推荐**的——微信落盘用内部序号名而非原始标题，只能靠内容哈希认件，见 §3 机制勘误。「严禁 md5(本地字节)」指的是**不得据此重新赋予/覆盖 file_id 身份**，不是禁止内容哈希校验。） |
+| `file_id` | str | 是 | 稳定 id = **微信消息库里那条记录自带的文件 md5**（壳也有）。**身份不得用本地字节重派**——`file_id` 永远取消息库自带 md5，即便本地没落盘也有此 id。（**辨析**：*校验/匹配* 一个已落盘文件是不是某 item，按 `md5(盘上字节)==file_id` 认是**允许且推荐**的——微信落盘用内部序号名而非原始标题，只能靠内容哈希认件，见 §3「机制现实」+ 主动下载禁用注。「严禁 md5(本地字节)」指的是**不得据此重新赋予/覆盖 file_id 身份**，不是禁止内容哈希校验。） |
 | `name` / `ext` / `size` / `mime` | | name 必填 | 文件名 / 扩展名（小写无点）/ 字节数 / MIME。 |
 | `provenance` | obj | 是 | 来源履历，见 §2.1。 |
 | `has_local` | bool | 是 | **真相轴①**：现在本地磁盘上有可取的字节吗。 |
@@ -55,7 +55,7 @@
 | 端点 | 作用 | 说明 |
 |---|---|---|
 | `GET /api/files?chat=&since=&status=` | **列举** | rich_file item 列表。**分页必做**（`limit`/`offset` 或 cursor，capabilities 声明），不一次拉全。 |
-| `POST /api/files/download {chat, msg_id?}` | **主动下载（常态·写侧）** | **单件**（给 `msg_id`）或**会话级批量**（只给 `chat` → 下该会话所有 `cdn=recoverable`）。对 `recoverable` 件后端**驱动微信自身的下载器**（a11y 打开会话→定位该消息→触发下载，微信客户端自己完成取件+落盘）→ 读 `<账号>/msg/file/年-月/` 明文 → `has_local` 转 true。⚠️ **碰 GUI·单 GUI 串行·仅对 ~5–7 天保留窗内的件有效**（窗外微信自身也报「文件已过期」→ 返 typed `expired`）。**不可**用存的 cdnurl+aeskey 在 GUI 外裸取——见文末「机制现实」。**批量走异步**：立即返回 `{accepted}`（本次入队件数，**必给**）；**进度真相源 = `GET /api/files` 的 status 迁移（`recoverable→local`）轮询**，后端**不持有 job 状态机、不另立 job 查询端点**（守无状态）。`job` 字段**可选·纯 informational**（后端要给个计数/批次号可给，但消费方不得依赖它回查进度）。单件小文件可同步返回归档后 item。失败给 typed error（§5）。**GUI-drive 自动化严格限定于 inbound 取件交互（开会话 / 定位消息 / 触发下载 / 读盘），绝不触达任何 send / forward / compose / publish 控件。**依据 0 号宪法红线「对外动作·系统永不替发」——取件是读入，不得因驱动 live GUI 而越界到任何对外可见/发送动作。 |
+| `POST /api/files/download {chat, msg_id?}` | **主动下载（常态·写侧）⚠️本 build 已禁用** | **⚠️ 本 build（`7b3f07cc`）已禁用主动 GUI 下载，返 `active_download_disabled`（见下「主动下载禁用」注 + §5）；下述语义留作契约、待安全触发方案重启用。** **单件**（给 `msg_id`）或**会话级批量**（只给 `chat` → 下该会话所有 `cdn=recoverable`）。对 `recoverable` 件后端**驱动微信自身的下载器**（a11y 打开会话→定位该消息→触发下载，微信客户端自己完成取件+落盘）→ 读 `<账号>/msg/file/年-月/` 明文 → `has_local` 转 true。⚠️ **碰 GUI·单 GUI 串行·仅对 ~5–7 天保留窗内的件有效**（窗外微信自身也报「文件已过期」→ 返 typed `expired`）。**不可**用存的 cdnurl+aeskey 在 GUI 外裸取——见文末「机制现实」。**批量走异步**：立即返回 `{accepted}`（本次入队件数，**必给**）；**进度真相源 = `GET /api/files` 的 status 迁移（`recoverable→local`）轮询**，后端**不持有 job 状态机、不另立 job 查询端点**（守无状态）。`job` 字段**可选·纯 informational**（后端要给个计数/批次号可给，但消费方不得依赖它回查进度）。单件小文件可同步返回归档后 item。失败给 typed error（§5）。**GUI-drive 自动化严格限定于 inbound 取件交互（开会话 / 定位消息 / 触发下载 / 读盘），绝不触达任何 send / forward / compose / publish 控件。**依据 0 号宪法红线「对外动作·系统永不替发」——取件是读入，不得因驱动 live GUI 而越界到任何对外可见/发送动作。 |
 | `GET /api/media/{chat}/{msg_id}` | **取件（保持纯净）** | 只服务**已落盘（has_local）**字节（**不做同步 lazy CDN 下载**，避免击穿消费方 GET 超时）。未落盘按 cdn 态分**两种终码**：`cdn=recoverable`（能下但还没下）→ **`404 {code:"not_local"}`**（消费方 `POST download` 预热再 GET）；`cdn=expired`（CDN 已删·下不回来）→ **`410 {code:"expired"}`**（终态「没了」，消费方**别再试预热**）。两码分开,免消费方对 expired 件白试一轮预热。 |
 | `POST /api/files/delete-local {chat, msg_id}` | **删本地副本 / 复位** | 删**本地下载的那份** → `has_local` 转 false（**不删微信原件**）。下载可逆的操作化落点（CRUD 铁律：Delete 一等、并↔拆可逆）。删前后端留痕；**清盘必 HITL，后端绝不自动删**。 |
 | `GET /api/capabilities` → `rich_files` | **能力声明** | `{ list, download, delete_local, auto_download_mb, base_url, local_bytes }`。`download`=写侧就绪位；`auto_download_mb`=微信**被动**下载阈值（实测 .28 = **100**，主动 download **不受此限**）；**`local_bytes`（`download:true` 时必填）**=**整账号**归档目录（`<账号>/msg/file/`）本地占用字节**合计**（不按会话细分——保留策略要的是「看得见盘增长」，整账号一个数最省且够用）。盘增长可见是「主动下载可被接受」的安全前提，也是清盘 HITL 的地基，故**不可选**（download 关时可省）。缺 `rich_files` 键 = 不支持，消费方优雅降级。 |
@@ -70,9 +70,11 @@
 >
 > **对契约消费方无接口影响**（端点/错误码/capabilities 不变）,但两条现实约束需知晓:①download **碰 GUI、单 GUI 串行**（吞吐/时延受限,批量务必异步）;②可归档的只有**滚动的最近 ~5–7 天新增**,存量绝大多数是 `expired` 死壳。后端**继续持久化** `cdnattachurl/aeskey/md5/encryver`(便宜),留作将来若 frida 支持本 build 走「wcferry 式内部下载器调用」的选项。**消费方（AMR）运维应按串行吞吐重设批量 ETA/超时，勿沿用并行直取的时延预期。**
 
-## 4. 选择策略（住 AMR，不进后端）
+## 4. 选择策略（值住 AMR + 人；范围订阅策略数据落点见 §4.5 Route A）
 
-- **后端 = 哑字节抓取器**：只 list + 按 `POST download` 下、按 `POST delete-local` 删、按 GET 取；**不内置「下谁 / 订阅谁」**。
+> 本节讲 download 目标选择的总原则「值由人/AMR 定」。**范围订阅策略对象的数据落点**（阈值+白名单存哪）经 §4.5 裁定为 **Route A（住 PD、AMR 前端编辑）**——见 §4.5 与本节末桥接注；两者不冲突（值仍人配，落点搬到 PD）。
+
+- **后端 = 哑字节抓取器**：只 list + 按 `POST download` 下、按 `POST delete-local` 删、按 GET 取；download **执行侧不自决「下谁」**（不越人所设策略）。（范围订阅策略对象在 Route A 下由 PD 持有并据以过滤 `in_scope`，仍不超出人在 AMR 前端所设——见 §4.5。）
 - **策略住 AMR + 人**（宪法「人拿扳手」+「归类归 AMR」）：业务/小群 → AMR 可 `POST download {chat}` 会话级全下（确定性规则）；大群 → 人/规则筛，只下选中的。触发逐消息 / 会话订阅式由 AMR 定。
   - **「按会话自动下载」本身是人可开关 / 可编辑的 gate，非 AMR 默认全开**（守宪法「不得设计甩手全自动、人被旁路」）——默认关或按人设的白名单会话开，人决定哪些会话值得常态落盘。
 - **被动兜底**：微信桌面「自动下载 ≤N MB」（实测 .28 N=**100**、ON）继续生效——桌面客户端既有行为、非本系统自动决策；调 N **仍须人手拨挡**，非后端自调。
@@ -97,7 +99,7 @@
   "audio_video": { "auto_small": false, "large_allow": [] }   // 下一轮启用,默认全关
 }
 ```
-> **默认 opt-in（守 §4 line 75 + 宪法「不得甩手全自动、人被旁路」）**：所有 `auto_*` **出厂默认关**，**人在 AMR 前端显式开启某档才自动归档**——不得在人未配置前静默把每个私聊/小群的文件自动归档。这是自动归档 PII 的安全地基。
+> **默认 opt-in（守 §4「按会话自动下载 = 人可开关的 gate」条 + 宪法「不得甩手全自动、人被旁路」）**：所有 `auto_*` **出厂默认关**，**人在 AMR 前端显式开启某档才自动归档**——不得在人未配置前静默把每个私聊/小群的文件自动归档。这是自动归档 PII 的安全地基。
 
 **分类判定**（纯函数，两侧应一致）：私聊 → `dm_auto && <type>.auto_small`；群 `n≤max` → `<type>.auto_small`；群 `n>max` **或成员数未知** → `chat_id ∈ <type>.large_allow`（**未知按大群**，保守不静默归档无界大群）。成员数取 `group-metadata` 的 `member_count`。
 > **member_count 是近似值（`group-metadata` 声明 best-effort，`roster:false` 下不精确）**——本判定拿它当小/大群闸，**误分类只会向保守侧降级**（把小群误判成大群 → 需白名单 → 不会静默归档），**绝不向"静默归档无界大群"降级**。故近似可接受。
@@ -130,7 +132,7 @@ AMR：ingest 拿到 `kind:"file"` → 需要字节时 `POST download` 预热 →
 - **不可逆决策**：下载 = 可逆地多存一份本地副本（不删原件、`delete-local` 可撤），**护住人的未来选择权**，非替人做不可逆决策。✅
 - **清盘 HITL**：主动下载会长盘 → 契约要求后端 `download:true` 时**必报** `local_bytes`（人/Agent 看得见增长，非可选）；**删除/清盘必人审，后端绝不自动清**。✅
 - **赋能不替代 · 算料是生产资料**：把易失的微信文档封装进契约（可判状态 + 可达取件 + 可区分错误），让它可流通、可归类、可增值。✅
-- **GUI-drive 越界护栏**：GUI-drive 只在 inbound 取件控件上操作（开会话 / 定位消息 / 触发下载 / 读盘），有越界护栏（见 §3 confinement clause），**绝不触达发送 / 转发 / 合成 / 发布控件**。✅（**注**：本 build 主动 GUI-drive download 已禁用〔§3〕，此护栏对该路径当前 moot；待主动下载以安全触发方案重启用时**重新生效**。）
+- **GUI-drive 越界护栏**：GUI-drive 只在 inbound 取件控件上操作（开会话 / 定位消息 / 触发下载 / 读盘），有越界护栏（见 §3 confinement clause），**绝不触达发送 / 转发 / 合成 / 发布控件**。✅（**注**：本 build 主动 GUI-drive download 已禁用〔§3〕，此护栏对该路径**当前不触发（dormant，护栏条款仍在 §3 保留）**；待主动下载以安全触发方案重启用时**重新生效**。）
 - **范围策略数据落点（Route A · §4.5）**：策略对象单一真相源住 PD（`GET/PUT /api/files/policy`），**后端不自决订阅谁**（只按人所设策略过滤 `in_scope`）；扳手在人——**策略写 = 人在 AMR 前端整对象替换**（`PUT`，human-in-loop write），非 Agent 自动改；`auto_*` 出厂默认关（opt-in），人未开则不自动归档。✅
 - **主动抓取现状**：本 build 主动 GUI download 已禁（返 `active_download_disabled`）；重启用须人审 + 维持 §3 confinement。当前取件走被动「浏览即下载 → 内容哈希认件 → GET /api/media」，无主动越界面。✅
 - **不泄露对外可见信号（断言）**：a11y 打开会话会翻本地 `is_read`；微信个人聊 / 群聊**无对外已读回执**，故此操作**不泄露任何对外可见信号**——**此为断言（经核实无对外回执），非默认假设**。✅
