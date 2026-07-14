@@ -2,9 +2,10 @@
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`message/` → AMR/@gthneo）。
 
-> **日期** 2026-06-26（含 v1.1 `msg_id` 加严口径，见 §2.1；**v1.2 读空必可区分 / 读覆盖声明 / `ts` 读路径不丢 / 公众号契约化，见 §6.4 + C6**）｜ **状态** 提案（待各通道后端评估实现）
+> **日期** 2026-06-26（含 v1.1 `msg_id` 加严口径，见 §2.1；**v1.2 读空必可区分 / 读覆盖声明 / `ts` 读路径不丢 / 公众号契约化，见 §6.4 + C6**；**v1.3 撤回=合法原地 mutation / 同 msg_key 撤回后 content+ts 一次性合法变 / 消费方遇 event=revoke 须 reconcile 不记碰撞，见 §4.4**）｜ **状态** 提案（待各通道后端评估实现）
 > **v1.2 兼容性**：对**消费成功读**纯加法（`success=数组` 不变、`ts` 本就必填）→ schema 仍 `message.canonical/1`（**minor**）。新增 = 读不可用的 409 信号 + capabilities `read` 块 + C6 口径；消费方应处理新的 409/工具错误。
 > ⚠️ **生产侧收紧**：`[]` 的语义被**重定义**——从前「读不到 or 真 0」二义，现在 `[]` 带保证「真 0 + 覆盖完整」。今天任何在密钥缺失时回 `[]` 的后端**即变为不合规**，须改吐 409。判作 minor 仅因本契约仍是**提案**、尚无已部署的合规后端；一旦有后端实现，此为破坏性收紧，须在该后端版本里显式声明。
+> **v1.3 兼容性**：纯加法（新增 §4.4 撤回原地-mutation 口径 + §4.3 结构化 10000 撤回行 + 消费方 `event=revoke` reconcile 规则）→ schema 仍 `message.canonical/1`（**minor**）。旧消费方忽略即维持现状（撤回仍被当作内容变化）；**要闭环消除撤回碰撞的消费方须实现 §4.4 的 reconcile**。后端侧：撤回须映射 `event=revoke`（fullwechat 已实现 type-10000 结构化 `<sysmsg>` → `sysmsg_to_system`）。
 > **适用范围** **一切消息通道（Message Channels）**：微信 / 电话 / 飞书 / iMessage / 企微 / 未来任意。每个通道后端都遵守本契约。
 > **定义方** AgenticMessageRouter (AMR / the Router) —— 契约唯一真相源在 `agentic-contracts` 仓（本文件），AMR(@gthneo) own。
 > **实现方** 各通道后端，**各自独立仓库**（如 `gthneo/powerdata`、fullwechat 后端仓 …），引用本契约实现；每通道一份**映射附录**（微信见附录 A）。
@@ -196,9 +197,21 @@
 | 10002 `sysmsg type=pat` | 拍一拍 | `pat` | `actor`=fromusername；`text`=template 文案 |
 | 10002 `sysmsg type=delchatroommember` | 踢人/邀请 | `member_change` | `text`=文案；scene 区分移除/邀请进 raw |
 | 10002 `sysmsg type=sysmsgtemplate` | 模板群通知（入群/邀请/公告/待办） | `member_change` 或 `notice` | 回填 `${...}` 占位符后的 `text`（link_list 映射昵称） |
+| 10000 `sysmsg type=revokemsg`（**结构化**，原地覆盖原消息行） | 撤回 | `revoke` | **同 10002 revokemsg 处理**：后端**解 sysmsg.type、不当纯文案**；`text`=replacemsg 文案「X 撤回了一条消息」（勿吐裸 XML）。微信把撤回存成 **type-10000 的 `<sysmsg>`、原地覆盖原消息行**（同 `serverId`）——见 §4.4 |
 | 10000 纯文案 | 入群/退群/改群名/红包领取/「你已添加 X」/转账被领取 等 | 关键词归类（`revoke`/`member_change`/`notice`） | `text`=原文案；认不准归 `notice` |
 
-> 入群/邀请有 10000 / `delchatroommember` / `sysmsgtemplate` **三条并存路径**（survey），后端三条都要覆盖，统一归 `system`。撤回保守做法：10002 优先解 sysmsg.type，兜底再正则扫 10000（survey 陷阱⑥）。
+> 入群/邀请有 10000 / `delchatroommember` / `sysmsgtemplate` **三条并存路径**（survey），后端三条都要覆盖，统一归 `system`。撤回：**只要 body 是结构化 `<sysmsg type=...>` 就走 sysmsg.type 解**（不论标 10000 还是 10002）；仅真·纯文案 10000 才关键词兜底扫（survey 陷阱⑥）。
+
+### 4.4 撤回 = 合法的「原地 mutation」；消费方须 reconcile 而非记碰撞
+
+> 2026-07-14 补（PD 定位实证 / AMR 审）。缘起：AMR `contract_violations_24h` 冲高，100% 为 `msg_key_collision`、全塌缩到 2 条**被撤回**的消息。
+
+微信「撤回」**不是新消息** —— 它**原地覆盖原消息行**：同一 `serverId`（即同 `msg_id`/消费方 `msg_key`）的行，`local_type` 变为 `10000` 的 `<sysmsg type=revokemsg>`，`content`/`ts` 换成撤回版，**此后字节稳定不变**。故同一 `msg_key` 的 canonical `content`+`ts` 会**一次性合法变化**（原消息 → `kind=system` + `system.event="revoke"`），之后恒定。
+
+- **口径**：同一 `msg_key` 的 canonical `content`+`ts` 应**幂等稳定**（消费方据此去重、建稳定索引）——**唯一合法例外 = 撤回**（原地 mutation，一次性、之后稳定）。这不是后端非确定性重算。
+- **后端**：撤回**必须**映射为 `kind=system` + `system.event="revoke"`（不论微信标 10000 还是 10002 的结构化 `<sysmsg>`；见 §4.3）。这是消费方 reconcile 的**信号前提**。
+- **消费方**：遇**已存在**的 `msg_key`、且新信封 `system.event="revoke"` ⟹ **必须 reconcile**（把首存原消息更新为撤回态 / 打 tombstone），**不得记 `msg_key_collision`/契约违约**。`serverId` 稳定沿用原 id，正好让消费方把撤回**关联回原消息**去 reconcile。
+- 与 §2.1 `msg_id` 加严口径正交：`msg_id` 仍须全局唯一 + 稳定；本条只是明确「同 id 的内容**可因撤回一次性合法变**」及消费方对应处理。
 
 ## 5. 过滤规则（后端不应 emit 的噪声）
 
