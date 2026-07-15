@@ -1,0 +1,13 @@
+{
+  "schema": "message.canonical/1",
+  "channel": "wechat",
+  "direction": "out",
+  "kind": "call",
+  "text": "☎ 通话 · 已拒绝",
+  "ts": 1751500300,
+  "sender": "李四",
+  "sender_id": "wxid_test_lisi",
+  "is_mentioned": false,
+  "msg_id": "srv_call_0002",
+  "call": { "state": "declined" }
+}
