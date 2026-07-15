@@ -6,6 +6,7 @@
 > **v1.2 兼容性**：对**消费成功读**纯加法（`success=数组` 不变、`ts` 本就必填）→ schema 仍 `message.canonical/1`（**minor**）。新增 = 读不可用的 409 信号 + capabilities `read` 块 + C6 口径；消费方应处理新的 409/工具错误。
 > ⚠️ **生产侧收紧**：`[]` 的语义被**重定义**——从前「读不到 or 真 0」二义，现在 `[]` 带保证「真 0 + 覆盖完整」。今天任何在密钥缺失时回 `[]` 的后端**即变为不合规**，须改吐 409。判作 minor 仅因本契约仍是**提案**、尚无已部署的合规后端；一旦有后端实现，此为破坏性收紧，须在该后端版本里显式声明。
 > **v1.3 兼容性**：纯加法（新增 §4.4 撤回原地-mutation 口径 + §4.3 结构化 10000 撤回行 + 消费方 `event=revoke` reconcile 规则）→ schema 仍 `message.canonical/1`（**minor**）。旧消费方忽略即维持现状（撤回仍被当作内容变化）；**要闭环消除撤回碰撞的消费方须实现 §4.4 的 reconcile**。后端侧：撤回须映射 `event=revoke`（fullwechat 已实现 type-10000 结构化 `<sysmsg>` → `sysmsg_to_system`）。
+> **v1.4 兼容性（call 细化）**：纯加法/放松（§3 `call` 子对象：`media` 转**可选**、`state` 枚举**加 `declined`**、附录 A ★ VoIP 映射备案）→ schema 仍 `message.canonical/1`（**minor**）。放松（`media` 从隐含必填→可选）不破坏旧消费方（本就 `media ∈ {voice,video}`，缺省即「这一维没解」）；`declined` 是新枚举值，旧消费方遇到按未知 state 兜底即可。缘起 PD #11 交付后 4 条实证事实，AMR（定义方）决策细化（WO① 2026-07-15）。
 > **适用范围** **一切消息通道（Message Channels）**：微信 / 电话 / 飞书 / iMessage / 企微 / 未来任意。每个通道后端都遵守本契约。
 > **定义方** AgenticMessageRouter (AMR / the Router) —— 契约唯一真相源在 `agentic-contracts` 仓（本文件），AMR(@gthneo) own。
 > **实现方** 各通道后端，**各自独立仓库**（如 `gthneo/powerdata`、fullwechat 后端仓 …），引用本契约实现；每通道一份**映射附录**（微信见附录 A）。
@@ -85,7 +86,7 @@
 | `payment` | `transfer` `red_packet` | `{amount?, memo?, stage?}` — `amount` 如 `"¥100.00"`；`stage` = 收发阶段（survey: paysubtype 1/3/4/5/7）。 |
 | `channels` | `channels` | `{author, desc?, kind, cover?, url?}` — 视频号。`author` = 视频号作者/主播名；`kind ∈ {video, live}`（短视频 / 直播）；`cover` = 封面图 URL；`url` = 跳转链接。**out（发/转视频号）打桩·后续阶段**（先进后出）。 |
 | `friend_verify` | `friend_verify` | `{applicant, applicant_id?, greeting?, scene?}` — 好友验证（加好友=新关系起点，信息值钱）。`applicant` = 申请人显示名；`applicant_id` = 申请人 wxid；`greeting` = 验证语；`scene` = 来源场景（搜手机号/群/扫码…，给得出就给）。 |
-| `call` | `call` | `{media, state, duration?}` — 语音/视频通话（关系强信号，方向靠顶层 `direction` 判 in=接入/out=拨出）。`media ∈ {voice, video}`；`state ∈ {completed, missed, canceled, no_answer}`；`duration` = 通话秒数（completed 时给）。 |
+| `call` | `call` | `{media?, state?, duration?}` — 语音/视频通话（关系强信号，方向靠顶层 `direction` 判 in=接入/out=拨出）。`media ∈ {voice, video}`（**可选·best-effort**：后端能可靠判就给，判不了则省略、不臆造——见附录 A ★）；`state ∈ {completed, missed, canceled, no_answer, declined}`（**`declined` = 对方主动拒接**，独立关系信号，别塌进 `canceled`=我方挂断/取消；无接通信号的「中断」类文案**省略 `state`**）；`duration` = 通话秒数（completed 时给，best-effort）。 |
 
 > 不在表内的字段一律不要求。后端只 emit 它解得出的子对象；缺失即「这一维我没解」，AMR 不报错。
 > **新子对象口径（2026-07-03 王总逐条钦定，见本仓 PR）**：`channels`/`friend_verify`/`call` 为 3 个新 kind 的结构化载体。三者 out 向均先打桩（先进后出）；`call.duration`/`friend_verify.scene` 等「给得出就给」，不阻塞上线。
@@ -157,7 +158,7 @@
 | 47 | EMOTICON 动画表情 | `sticker` | `media{placeholder:[表情], ref?}` |
 | 48 | LOCATION 静态位置 | `location` | `location{label, poi}` |
 | 49 | APPMSG 容器 | **看 §4.2 子类** | 按 appmsg.type 分流 |
-| 50/52/53 | VoIP 通话族 | `call` | `call{media:voice\|video, state:completed\|missed\|canceled\|no_answer, duration?}`（**独立 kind**，王总 2026-07-03；通话=关系强信号，方向靠顶层 direction） |
+| 50/52/53 | VoIP 通话族 | `call` | `call{media?, state?, duration?}`（**独立 kind**，王总 2026-07-03；通话=关系强信号，方向靠顶层 direction）。映射口径见表下 **★**。 |
 | 51 | STATUSNOTIFY 状态同步 | **过滤** | 协议噪声，后端**不应 emit**（见 §5）；若 emit 则 `unknown` |
 | 62 | MICROVIDEO 小视频 | `video` | `media{placeholder:[小视频]}` |
 | 66 | （冲突：企业名片/红包） | `unknown` | 见 §9 冲突①，按实测后端口径择一，默认 unknown |
@@ -165,6 +166,12 @@
 | 10000 | SYS 纯文本系统提示 | `system` | `system{event, text:原文案}`，event 靠关键词（见 §4.3） |
 | 10002 | SYSMSG XML 容器 | `system` | 看 §4.3 sysmsg.type |
 | 其它/未知 | — | `unknown` | `text` = 清洗后原文或占位 |
+
+> **★ VoIP `call` 映射备案（fullwechat / PowerData 实测 `.28`，2026-07-15；PD #11 交付 + 73 条真机复验）**：
+> - **判别靠 content 含 `<voipmsg>`**（比顶层 type 号可靠——voip 的 type 不稳；实测多为 `local_type=50`）。文案取 `<msg>` CDATA、前缀「☎ 通话 · 」、剥裸 XML。
+> - **`state` 映射**：通话时长 / 已接听 → `completed`；对方已取消 → `canceled`；已拒绝 / 对方已拒绝 / 已在其它设备拒绝 → **`declined`**；忙线 / 未应答 / 无人接听 → `no_answer`；未接 → `missed`；**「通话中断」等无接通信号的文案 → 省略 `state`**（`<voipmsg><duration>` 恒 0、`msg_type`/`room_type`/`inviteid` 均不编码「是否接通」，无法判 completed/no_answer，不臆造；`text` 保留原文可读）。
+> - **`media`**：判别位只有 `<room_type>`（0/1），其 0/1 ↔ voice/video **方向暂无权威依据 → 一律省略 `media`、不猜**；查到权威来源再补映射、`media` 转可靠。
+> - **`duration`**：`<voipmsg><duration>` XML **实测恒为 0**（微信怪癖）→ 从「通话时长 MM:SS」文本解析（best-effort，completed 时尽量给）。
 
 ### 4.2 appmsg（49）子类 → kind
 
