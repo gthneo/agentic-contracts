@@ -204,14 +204,28 @@
 
 ### 4.4 撤回 = 合法的「原地 mutation」；消费方须 reconcile 而非记碰撞
 
-> 2026-07-14 补（PD 定位实证 / AMR 审）。缘起：AMR `contract_violations_24h` 冲高，100% 为 `msg_key_collision`、全塌缩到 2 条**被撤回**的消息。
+> 2026-07-14 补（PD 定位实证）/ 2026-07-15 v1.3 定稿（AMR 审 REQUEST-CHANGES 收口）。缘起：AMR `contract_violations_24h` 冲高，100% 为 `msg_key_collision`、全塌缩到 2 条**被撤回**的消息。
 
-微信「撤回」**不是新消息** —— 它**原地覆盖原消息行**：同一 `serverId`（即同 `msg_id`/消费方 `msg_key`）的行，`local_type` 变为 `10000` 的 `<sysmsg type=revokemsg>`，`content`/`ts` 换成撤回版，**此后字节稳定不变**。故同一 `msg_key` 的 canonical `content`+`ts` 会**一次性合法变化**（原消息 → `kind=system` + `system.event="revoke"`），之后恒定。
+微信「撤回」**不是新消息** —— 它**原地覆盖原消息行**：同一 `serverId`（即同 `msg_id`/消费方 `msg_key`）的行，`local_type` 变为 `10000`（或 `10002`）的 `<sysmsg type=revokemsg>`，`content`/`ts` 换成撤回版，**此后字节稳定不变**。故同一 `msg_key` 的 canonical `content`+`ts` 会**一次性合法变化**（原消息 → `kind=system` + `system.event="revoke"`），之后恒定。
 
-- **口径**：同一 `msg_key` 的 canonical `content`+`ts` 应**幂等稳定**（消费方据此去重、建稳定索引）——**唯一合法例外 = 撤回**（原地 mutation，一次性、之后稳定）。这不是后端非确定性重算。
-- **后端**：撤回**必须**映射为 `kind=system` + `system.event="revoke"`（不论微信标 10000 还是 10002 的结构化 `<sysmsg>`；见 §4.3）。这是消费方 reconcile 的**信号前提**。
-- **消费方**：遇**已存在**的 `msg_key`、且新信封 `system.event="revoke"` ⟹ **必须 reconcile**（把首存原消息更新为撤回态 / 打 tombstone），**不得记 `msg_key_collision`/契约违约**。`serverId` 稳定沿用原 id，正好让消费方把撤回**关联回原消息**去 reconcile。
-- 与 §2.1 `msg_id` 加严口径正交：`msg_id` 仍须全局唯一 + 稳定；本条只是明确「同 id 的内容**可因撤回一次性合法变**」及消费方对应处理。
+**口径**：同一 `msg_key` 的 canonical `content`+`ts` 应**幂等稳定**（消费方据此去重、建稳定索引）——**唯一合法例外 = 撤回**（原地 mutation，一次性、之后稳定；**不是**后端非确定性重算）。
+
+**后端**：撤回**必须**映射为 `kind=system` + `system.event="revoke"`（不论微信标 10000 还是 10002 的结构化 `<sysmsg>`；见 §4.3），且**必须给稳定 `msg_id`（= `serverId`，撤回沿用原消息 id）**。这是消费方 reconcile 的**信号前提 + 关联锚点**。
+
+**消费方**（遇**已存在**的 `msg_key` 且新信封 `system.event="revoke"`）—— **必须 reconcile，且为 (a) AND (b) 两者，不得记 `msg_key_collision`/契约违约**：
+- **(a) 去重基线推进到撤回版**：把该 `msg_key` 的去重/碰撞判定基线（被比对的 `content`+`ts`）**更新为撤回版**，使后续同 key 的 incoming（撤回版）`== baseline` → **不再判碰撞**。⚠️ **只打 tombstone 而不推进被比对字段 = 无效**（撤回版每轮仍 ≠ 首存原文 → 碰撞照记，本口径落空）。
+- **(b) 撤回前原文另存于非比对字段**（`raw` / 独立历史 / tombstone 记录），**不得静默丢弃**（守 0 号宪法第 5 条：算料 = 生产资料；不可逆决策须可回交给人）。撤回态须**可展开原文回交给人**。
+
+**边界**：
+- **① `msg_key` 从未存过**（冷启动 / 原消息曾被 §5 过滤 / 留存剪除）：撤回信封作为**独立 `system`/`revoke` 事件入库**，不 reconcile、不报错。
+- **② reconcile 依赖 `msg_id` 在场**：§2.1 允许后端省 `msg_id`、消费方退回 content-hash 做 `msg_key` —— 此时原消息与撤回版 content-hash **不同** ⟹ **不同 `msg_key`** ⟹ 永不命中「已存在」，reconcile 整体失效。故**后端在撤回场景必须给稳定 `msg_id`（serverId）**；给不出则撤回落为**独立 `system` 事件**（声明局限，非闭环）。
+- **③ 无信号兜底**：旧 / 非合规后端吐裸 `<sysmsg>` XML 或落 `kind=unknown`、拿不到 `event=revoke` 时，消费方碰撞抑制为 **best-effort**，且**不得据裸 XML 擅自 reconcile**（呼应 §1.5：认不准 → `unknown` 保守，不猜）。
+
+**`ts` 取舍**：本条令 `content` 与 `ts` 都换撤回版。**去重基线用撤回 `ts`**；但**展示 / 时间线宜保留原消息 `ts`**（维持「对话何时发生」的位置），撤回时刻另存 `system` 子对象。⚠️ 提示按 `ts` 建游标的消费方：该行去重基线 `ts` 会**一次性前移**到撤回时刻。
+
+**与 §2.1 关系**：`msg_id` token 稳定性**不变**（§2.1 仍成立）。本条只对**去重 / 内容不变性的运行语义**新增**唯一例外**：同 `id` 的 canonical `content`/`ts` 可因撤回**一次性合法变**，去重路径须据 `event=revoke` 走 **reconcile 分支**（**不是**「去重路径无需改动」）。
+
+> **conformance 覆盖（诚实性声明，对应 N2）**：本条属**消费方运行时行为约定**（同 `msg_id` 原始→撤回**时序**不算碰撞），与 `scripts/conformance.py` C1「`msg_id` 跨 fixture 全局唯一」的**静态每信封**校验语义正交。故 §4.4 **不由 contract-repo conformance 覆盖**，由**消费方侧测试 + 端到端集成验证**兜底（AMR reconcile 单测 + `contract_violations_24h` 回落复测）。此为有意选择：避免给 conformance 塞一个与 C1 相抵的「双态 fixture」特例。
 
 ## 5. 过滤规则（后端不应 emit 的噪声）
 
