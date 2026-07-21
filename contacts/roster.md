@@ -2,7 +2,7 @@
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`contacts/` → AMR/@gthneo）。
 >
-> **日期** 2026-07-21 ｜ **状态** **提案·PD 起草待 AMR 审计**（不 merge，交 AMR 仁德对抗审后定稿）
+> **日期** 2026-07-21 ｜ **状态** **AMR 对抗审定稿**（read/计数/taxonomy/OpenID 桩定稿；§4 connect 收为占位桩、`connect_supported` 翻真前须再走治理铁律 #5 独立审。§10 六口径已拍 + 独立宪法审并入）
 > **from** fullwechat / PowerData-WX 后端（pw仁德，起草 + 提事实）｜ **to** AgenticMessageRouter（AMR 仁德，定义方·审计/merge）
 > **姊妹契约** `../message/canonical.md`（会话消息）· `../moments/read-like.md`（朋友圈）· `../group-metadata/*`（群元数据）
 > **适用范围** 微信通讯录里的**实体名册**：读（roster + 计数）+ 连接（connect·打桩）。**不覆盖**会话消息 / 朋友圈 / 群内消息（各有姊妹契约）。
@@ -29,7 +29,7 @@
 3. **ID 即 OpenID**。实体的 `id`(= 微信 `username`)本身就是稳定的 per-entity 唯一标识;`@`/`gh_` 前后缀即其命名空间/类型(§7)。不新造 ID 体系。
 4. **进 + 出**。实体面既能**读**(D1 入站:roster + 计数)也能**连接**(D2 出站:对未加陌生人触达/加好友,§4 打桩)。呼应 inbox/outbox「进出」哲学 —— 实体也能进能出。
 5. **归一 vs 领域分层**。后端只做「把实体归一成 typed canonical」(定 id/type/来源);**关系评分、去重、CRM 映射、触达谁 = AMR 消费端领域**,本契约不碰。
-6. **HITL + 哑执行(写动作铁律)**。connect/触达是对外写动作 → **AMR 永不自动加人**;人批量审后 AMR 才逐条调;后端哑执行,拟人节奏 + 幂等(复用 outbox 引擎)。
+6. **HITL + 哑执行(写动作铁律)**。connect/触达是对外写动作 → **AMR 永不自动加人**;AMR **提议候选(评分/时机仅供参考)→ 人逐个 ✓/✕ 决定连谁、说什么 →** AMR 才逐条调;后端哑执行 + 幂等(复用 outbox 引擎)。节奏来自**逐条人审的自然间隔 + 尊重对方(非骚扰)**,**不是绕平台风控的伪装**。connect 翻真的四条不可协商前置见 §4。
 7. **能力逐项 gate·不过度声明**。read 现成;connect / counts / 视频号 / friend 细分等未实现前 capabilities 报 `false`,AMR 静默降级(§8)。**契约可定义全实体面,可用性由 capabilities 逐项 gate**。
 
 ---
@@ -40,6 +40,7 @@
 
 ```json
 {
+  "schema": "contact.entity/1",
   "id": "wxid_test_zhangsan",
   "id_scheme": "wxid",
   "contactType": "individual",
@@ -61,9 +62,10 @@
 
 | 字段 | 状态 | 类型 | 说明 |
 |---|---|---|---|
-| `id` | 【保留·= 原 `username`】 | str | 实体稳定唯一 ID = 微信 `username`。**建议以 `id` 为规范名,`username` 作 alias 保留一段(见 §7)**。若 AMR 要求保留 `username` 名不动,PD 照办(additive)。 |
-| `username` | 【保留】 | str | 现有字段,= `id`。为不破坏 AMR 现有消费**继续同时输出**(§7 迁移期双写)。 |
-| `contactType` | 【保留·扩值】 | str | 现有枚举 `individual`/`official`/`openim`/`chatroom`。**新增值**:`system`(§6,原被丢的系统账号现暴露)。老值语义不变;AMR 对未知值按「其它」处理即可。 |
+| `schema` | 【➕新增·opt-in】 | str | 实体信封契约版本标识,v1 固定 `"contact.entity/1"`(与姊妹契约 `moment.canonical/1` 同族,利日后演进)。 |
+| `id` | 【保留·= 原 `username`】 | str | 实体稳定唯一 ID = 微信 `username`。**AMR 定稿(口径①):`id` 为规范名 + `username` 永久保留为 alias 双写**(非「保留一段」——删 `username` 即 breaking、与总纲『一行不改』冲突,故**永久**双写,零强制迁移)。 |
+| `username` | 【保留·永久】 | str | 现有字段,= `id`。**永久同时输出**(口径①双写),AMR 现有消费一行不改。 |
+| `contactType` | 【保留·**冻结**】 | str | 现有枚举 `individual`/`official`/`openim`/`chatroom`,**冻结不扩值**(AMR 定稿口径②:`system`/`channel` 只进 `entity_kind`,不加进 `contactType`——给 switch on `contactType` 的老消费方塞未知值非纯 additive)。老值语义不变。 |
 | `nickName` | 【保留】 | str | 昵称。 |
 | `remark` | 【保留】 | str\|null | 备注名。 |
 | `alias` | 【保留】 | str\|null | 微信号。 |
@@ -79,7 +81,8 @@
 
 ### 2.2 口径
 - **加法式保证**:AMR 现有代码只读【保留】字段 → 行为不变。【➕新增】字段一律可缺省/可忽略。
-- **`friend` 与计数(§3.2)**:`friend:true` 的个人数应 ≈ 微信「X 个朋友」(该号 7368);`friend:false/null` = 非好友(~38k,群成员/陌生人)。**friend-flag 的底层判定 PD 待验证**(疑 `local_type 3=好友 vs 1=非好友`,§9),验证前 `friend` 可先恒 `null` + capabilities `friend_flag:false`。
+- **system 账号默认排除(AMR 定稿口径②·守 additive 的关键)**:`entity_kind:system` 的 16 个内置账号(微信团队/文件传输助手等)**默认不进 `/api/contacts` 结果集** —— 保老消费**行集不变**(AMR `fetch_contacts` 只跳 `gh_`、不会把系统账号当人),仅 **opt-in**(`?include=system`,或随 `entity_kind` capability 一起)时才返回;inventory 照计(§3.2 `system:16`)。**system『暴露』= 可查/可计,不等于默认入名册**。
+- **`friend` 与计数(口径③)**:`friend:true`=好友、`false`=非好友(~38k 群成员/陌生人)、`null`=friend-flag 未验证前恒值。**准确性铁律:`inventory.friends` 要么精确 = 微信「X 个朋友」(7368),要么 `null` —— 绝不给近似数**。friend-flag 底层判定待 PD 验证(疑 `local_type 3=好友 vs 1=非好友`,§9),验证前 `friend` 恒 `null` + `friend_flag:false`。
 
 ---
 
@@ -94,7 +97,7 @@ Authorization: Bearer <token>
 - 返回实体 canonical(§2)数组。`find` 的 `q` 全字段模糊(remark/nickname/description/alias/phone/id)。
 - **分页**:`limit/offset`,翻到**空页(0 条)** 为止 = 正确收尾。**⚠️ 消费方勿以「页 < limit」判末页**(2026-07-21 修复前,某页因后置过滤短一行会误判到底,见 §9)。修复后每页满 `limit`(末页除外)。
 - 排序确定性(稳定分页,§9)。
-- `contactType` 现值 = 老枚举(+新增 `system`);`entity_kind`/`friend`/`id_scheme` 等 opt-in 字段随 capabilities 上线。
+- `contactType` 现值 = 老枚举(4 值·冻结,口径②);`entity_kind`/`friend`/`id_scheme` 等 opt-in 字段随 capabilities 上线。**system 账号默认不在结果集**(口径②,`?include=system` opt-in 才返回)。
 
 ### 3.2 计数（inventory / counts）【新能力·opt-in】
 ```
@@ -115,23 +118,35 @@ Authorization: Bearer <token>
   "channels_subscribed": null
 }
 ```
-- **准确性铁律(王总)**:`friends` 须等于微信「X 个朋友」;每项须写死数哪些 `entity_kind`/local_type。`groups`(群聊号)走 group-metadata 侧;`channels_subscribed`(视频号订阅)= 视频号面,未通(§5)故 `null`。
+- **准确性铁律(王总)**:`friends` 须**精确**等于微信「X 个朋友」,做不到则报 `null`(不给近似);每项须写死数哪些 `entity_kind`/local_type。
+- **计数归属(AMR 定稿口径⑥)**:inventory 只 own **实体计数**(individuals/friends/official/wecom/system);`groups`(群聊号)恒 `null` —— 权威在 `group-metadata`;`channels_subscribed`(视频号)恒 `null` —— 视频号面未通(§5)。**单一真相源**,避免群数被两处各计致漂移。
+- **计数↔名册一致性不变式**:inventory 各计数须与 `/api/contacts` **同一分类谓词** —— 如 `contacts_total`(46235)== 默认名册可翻页总行数(**不含 system**,口径②)= individuals(45702)+official(453)+wecom(80);`system`(16)单列;`friends`(7368)⊂ individuals。否则 count≠名册长度 = 漂移。
 - capabilities `inventory:true`(未实现前 `false` / 项为 `null`)。
 
 ---
 
-## §4 连接 / 触达（connect）—— 打桩·后面几轮实现
+## §4 连接 / 触达（connect）—— 精简保留桩·capability=false·翻真前须再走独立审
 
-**动机(王总 2026-07-21)**:通讯录里有大量**非好友**(群里见过、没加的陌生人,§2 `friend:false`)。消费端应能**定向对这些实体发起连接/触达**(加好友 / 首次问候),这是关系拓展/拟人经营的入口 —— 实体面的「出站」。
+**动机(王总 2026-07-21)**:通讯录里有大量**非好友**(群里见过、没加的陌生人,§2 `friend:false`)。消费端应能**定向对这些实体发起连接/触达**(加好友 / 首次问候),做关系拓展 —— 实体面的「出站」。
+
+**本版态度(AMR 定稿口径④)= 只声明能力占位,不铺详细语义**。connect 是所有出站里**风险最高**的:对**陌生人**主动触达 = 微信风控最敏感 + **积德红线**(0 号宪法第 4 条:群刷陌生人 = 骚扰/操纵/耗德)。故本版只保留占位端点,**完整语义(端点体/错误码/风控/可逆)= 专门 v.next**,待 PD 风控实证 + AMR 一份 HITL+积德 设计后再定。
 
 ```
-POST /api/contacts/{id}/connect       # 打桩·capabilities.connect_supported=false 前 501/降级
-Authorization: Bearer <token>
-{ "channel": "add_friend" | "message_first", "note": "<验证语/开场白>", "idempotency_key": "<...>" }
+POST /api/contacts/{id}/connect       # 占位·capabilities.connect_supported=false 前一律 501/降级
 ```
-- **哑执行 + HITL(铁律)**:对外写动作。**AMR 永不自动加人/触达**;人批量审「连谁、说什么」后,AMR 才逐条调;后端哑执行,拟人节奏 + 幂等(复用 outbox 引擎)+ 可逆退路(撤回请求/删会话,细节待定)。
-- **capabilities**:`connect_supported:false`(**打桩,未实现**)。响应形态/错误码/风控约束**待 AMR 定口径 + PD 实证后补**(加好友触发微信风控最敏感,§9 风险)。
-- **谁触达谁 = AMR 领域**(关系评分/时机/配额);后端只提供哑执行端点。
+
+**⚖️ `connect_supported` 翻真的四条不可协商前置**(写进契约·非「v.next 再议」·独立宪法审 2026-07-21 要求)——**不得从 `false` 翻 `true`,直到四条全部落地**:
+
+1. **逐个人审 + 每条理由**:每个触达目标**独立 ✓/✕**,且每条附「为何加这个人」的理由。**禁一键批量放行**(对陌生人「一键批 500」= 积德所禁的橡皮图章式群发;「批量审」= 逐个过目、非一键盖章)。
+2. **硬限速 / 日配额上限**:**后端服务端内建**速率/配额硬顶(纵深防御,不 100% 依赖消费端自律),AMR 侧再叠一层。
+3. **可逆 = 一等能力**(非「细节待定」):撤回请求 / 删会话,与正向 connect **同版交付**。
+4. **禁模板群发**:不对多目标发同一话术。
+
+**其余口径**:
+- **谁触达谁 = 人决定**:AMR **提议候选**(评分/时机仅供参考、排序供人看)→ **人决定连谁、说什么** → AMR 才逐条哑执行调端点。后端只提供哑执行端点 + 上述服务端限速,**不决定加谁**。
+- **节奏**:来自**逐条人审的自然间隔 + 尊重对方(非骚扰)**,**不是绕平台风控的伪装**。
+- **capabilities**:`connect_supported:false`(**占位,未实现**)。
+- **翻真那次 PR 须再走治理铁律 #5 独立宪法审**(对陌生人触达是宪法最敏感面)。
 
 ---
 
@@ -151,7 +166,7 @@ Authorization: Bearer <token>
 | `official` | 公众号 | `gh_*`(gh) | 订阅号 + 服务号(现未细分) |
 | `wecom` | **企业微信号(企微号)** | `数字@openim`(openim) | WeCom 用户作外部联系人。**术语:全称「企业微信号」/简写「企微号」,禁用「企业号」(歧义)** |
 | `chatroom` | **群聊号** | `*@chatroom`(chatroom) | 群。名册/成员走 group-metadata;`/api/contacts` 排除。**术语:一律「群聊号」加「号」字** |
-| `system` | 系统账号 | 固定 16 个 | 微信内置服务号(非真人):weixin=微信团队 / filehelper=文件传输助手 / fmessage=新的朋友 / floatbottle=漂流瓶 / medianote=语音记事本 / newsapp=腾讯新闻 / qqmail=QQ邮箱提醒 / weixingongzhong=公众平台助手 / mphelper=公众平台安全助手 / qqsafe=QQ安全中心 / exmail_tool=腾讯企业邮箱 / notifymessage=服务通知 / qmessage=QQ消息 / tmessage·lbsapp·pc_qq(3 个存疑)。**原被后端丢弃 → 现暴露(标 `system`),让消费端自行处理** |
+| `system` | 系统账号 | 固定 16 个 | 微信内置服务号(非真人):weixin=微信团队 / filehelper=文件传输助手 / fmessage=新的朋友 / floatbottle=漂流瓶 / medianote=语音记事本 / newsapp=腾讯新闻 / qqmail=QQ邮箱提醒 / weixingongzhong=公众平台助手 / mphelper=公众平台安全助手 / qqsafe=QQ安全中心 / exmail_tool=腾讯企业邮箱 / notifymessage=服务通知 / qmessage=QQ消息 / tmessage·lbsapp·pc_qq(3 个存疑)。**原被后端丢弃 → 现可暴露(标 `entity_kind:system`),但默认排除出名册、`?include=system` opt-in 才返回 + inventory 照计(口径②)** |
 | `channel` | 视频号 | `*@finder`(finder) | §5 占位·深读排后 |
 
 ---
@@ -198,22 +213,24 @@ Authorization: Bearer <token>
 | 项 | 实现参考 / PD 实证 |
 |---|---|
 | 名册读 | 读 `contact.db contact` 表 `WHERE local_type IN (1,3,5) AND NOT @chatroom`;分页 `LIMIT/OFFSET`。 |
-| **分页 bug 已修(2026-07-21)** | 原 `row_to_contact` 在 `LIMIT` **之后**丢系统账号 → 含系统账号的页返回 `limit-1`,消费方短页早停(该号翻页只到 3799/46235)。修:系统账号排除挪进 SQL WHERE(过滤在 LIMIT 前→每页满)+ ORDER BY 加 `id` 唯一 tiebreak。已部署 `.28`,翻页达全量 46235。**改暴露 system 后**:不再 SQL 排除,改 `row_to_contact` 标 `entity_kind:"system"` 不丢(仍保每页满)。 |
+| **分页 bug 已修(2026-07-21)** | 原 `row_to_contact` 在 `LIMIT` **之后**丢系统账号 → 含系统账号的页返回 `limit-1`,消费方短页早停(该号翻页只到 3799/46235)。修:系统账号排除挪进 SQL WHERE(过滤在 LIMIT 前→每页满)+ ORDER BY 加 `id` 唯一 tiebreak。已部署 `.28`,翻页达全量 46235。**system 账号(口径②·默认排除)**:默认仍从结果集排除(保每页满 + 老消费行集不变);仅 opt-in(`?include=system`)时以 `entity_kind:"system"` 返回,inventory 照计 `system:16`。 |
 | **friend-flag(待验证)** | 后端 45,702 个人 >> 微信 7368 好友 → 含 ~38k 非好友。好友/非好友区分键**待 PD 下轮实证**(疑 `local_type 3=好友 vs 1=非好友`,或另有 verify/friend flag);验证前 `friend` 恒 `null`。 |
 | **群陌生人捕获(待验证)** | 群成员 roster 在 `chat_room.ext_buffer` roomdata(非 contact 表);交互过的群成员**是否**落 contact 表成非好友行、以何身份 —— **机制待 PD 下轮实证**,`source.seen_in` 先打桩。 |
 | **视频号(够不着)** | §5:XWeb 子系统,不在可读 DB,XWeb introspection 被封 → 深读排后(B7)。 |
 | counts | 由 `entity_kind`/local_type 分类精确计数;`friends` 须对齐微信 UI(依赖 friend-flag)。 |
-| connect/触达 | 复用 outbox 引擎哑执行 + 拟人节奏;加好友触发微信风控最敏感 → 实现前需 PD 风控实证 + 强 HITL(§4)。 |
+| connect/触达 | 复用 outbox 引擎哑执行 + **服务端硬限速/配额**(§4 前置②);节奏 = 逐条人审的自然间隔(非绕风控伪装)。加好友触发微信风控最敏感 → 实现前需 PD 风控实证 + §4 四条前置全落 + 强 HITL,翻真那次 PR 再走独立宪法审。 |
 
 ---
 
-## §10 待 AMR 仁德拍口径（审计要点·有歧义提出别猜）
+## §10 六口径 —— AMR 仁德对抗审裁定（2026-07-21·已拍）
 
-1. **`id` vs `username`**:规范名用 `id` 还是保留 `username`?(PD 建议双写迁移,你定终态)
-2. **`contactType` 扩值 vs `entity_kind` 新字段**:是给 `contactType` 加 `system`/`channel` 值,还是让消费方改读新的 `entity_kind`?(二者并存的加法式,或你定收敛)
-3. **`friend` 语义**:`friend` 三态(true/false/null)口径你认可?是否要 `friend:true` 的计数硬等于微信「X 个朋友」?
-4. **connect/触达契约**:§4 打桩的端点形态/错误码/可逆退路/风控口径 —— 你定义,PD 实证补。加好友风险最高,是否本版只声明 capability=false 占位、语义 v.next?
-5. **视频号**:§5 占位(capability=false)你认可?深读排后?
-6. **计数归属**:`groups` 计数归 group-metadata 还是本契约?`channels_subscribed` 视频号未通先 `null`?
+1. **`id` vs `username`** → **`id` 规范名 + `id_scheme`;`username` 永久保留 alias 双写**(非「保留一段」——删 `username` 即 breaking、违总纲『一行不改』)。见 §2.1 / §7。
+2. **`contactType` 扩值 vs `entity_kind`** → **`entity_kind` 为规范权威字段(6 值);`contactType` 冻结在 4 遗留值,不扩 `system`/`channel`**。且 **system 账号默认排除出 `/api/contacts`、opt-in 才返回**(守 additive『行集不变』;`fetch_contacts` 才不会把系统账号当人)。见 §2.1 / §2.2 / §3.1。
+3. **`friend` 语义** → **接受三态**(true/false/null);`friends` 计数 = `count(entity_kind:individual ∧ friend:true)`,**要么精确 = 微信「X 个朋友」要么 `null`,绝不近似**;friend-flag 未验证前恒 `null`+`friend_flag:false`。见 §2.2 / §3.2。
+4. **connect/触达** → **本版只 capability=false 占位、§4 收为精简桩;完整语义 v.next**。**翻真前须先落四条不可协商前置**(逐个人审+理由/服务端硬限速/可逆一等/禁模板群发)+ **翻真那次 PR 再走独立宪法审**。见 §4(已按独立宪法审收严)。
+5. **视频号** → **接受占位**(capability=false + 不许诺支持 + 深读排后)。见 §5。
+6. **计数归属** → **inventory 只 own 实体计数**;`groups`/`channels_subscribed` 恒 `null`(权威在 group-metadata / 视频号面);+ **计数↔名册同一分类谓词**不变式。见 §3.2。
 
-— pw仁德(PD)起草 2026-07-21 · 交 AMR 仁德对抗审后定稿
+> **独立宪法审(治理铁律 #5·非作者 fresh agent)结论并入**:VERDICT = 无高危违宪、可 merge;三条 MEDIUM 已收口 —— ①§4 connect 四条积德前置写成翻真硬闸(本节 4 + §4);②system additive 不一致修为默认排除(口径 2);③删「拟人节奏绕风控」措辞、改述为逐条人审的自然间隔(§1.6 / §4 / §9)。read/计数/taxonomy/视频号四块判范本(计数拒近似、视频号不许诺)。
+
+— PD(pw仁德)起草 2026-07-21 · **AMR 仁德对抗审 + 独立宪法审定稿 2026-07-21**
