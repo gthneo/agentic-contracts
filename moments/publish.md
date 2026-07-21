@@ -13,7 +13,7 @@
 
 ## §0 v2 是什么 / 不是什么
 
-- **本契约是**：往**自己**朋友圈**发布一条动态**（一对多广播）的 AMR/AMP ↔ fullwechat 接口约束 —— 文案 + 图/视频 + 链接卡片 + 可见范围 + 幂等。
+- **本契约是**：往**自己**朋友圈**发布一条动态**（一对多广播）的 AMR/AMP ↔ fullwechat 接口约束 —— 文案 + 图/视频 + 链接卡片 + 可见范围 + 幂等。**v2.1 起含删除自己已发动态**（§7.5 · 发布的逆动作 · 可逆 CRUD）。
 - **本契约不是**：读动态 / 点赞（见 v1）；不是评论（YAGNI，v1 §7 留位）；不是排期/批量/营销节奏（那是 AMR/AMP 上层的「事」，§8）。
 
 **两个消费者**：
@@ -122,8 +122,11 @@ Content-Type: application/json
 | `MEDIA_LIMIT_EXCEEDED` | 图>9 / 视频超限 | 调用方裁剪 |
 | `VISIBILITY_INVALID` | visibility 模式/wxids 不合法（§5） | 调用方修 visibility |
 | `PUBLISH_FAILED` | 发表器执行失败（selector/UI 异常） | 保留草稿、回报人；可同 key 重试（幂等保护） |
+| `MOMENT_NOT_FOUND` | 删除的 `tid` 不存在（§7.5 delete-moment） | 视作已达期望态（no-op）或核对 tid |
+| `MOMENT_NOT_OWNED` | 删除的 `tid` 不是自己的动态（§7.5，建议 HTTP 403） | 核对 tid 归属；不重试 |
+| `MOMENT_DELETE_FAILED` | 删除执行失败（selector/UI/原生确认异常，§7.5） | 保留、回报人；可重试（幂等保护） |
 
-- **口径**：调用方按 `code` 决定动作，**不靠 HTTP 状态码区分语义**（HTTP 200 也可能 `ok:false`，对齐 send-target §2.1）。`code` 封闭枚举，新增 code 由 AMR 改 spec。
+- **口径**：调用方按 `code` 决定动作，**不靠 HTTP 状态码区分语义**（HTTP 200 也可能 `ok:false`，对齐 send-target §2.1）。`code` 封闭枚举，新增 code 由 AMR 改 spec。delete-moment（§7.5）三码并入本表（read-like 写/撤动作错误码见 `read-like.md` §4.8）。
 
 ---
 
@@ -186,6 +189,31 @@ AMR/AMP 起草内容（含 LLM assist 可选）
 
 ---
 
+## §7.5 删除已发动态 delete-moment（发布的逆动作 · 可逆 CRUD · v2.1 纳入）
+
+**修订 v2.1（班迪 2026-07-20 钦定）**：原 §10「取消/删除已发动态 v2 不做」已废。理由：发布是最重对外动作，其逆动作（撤下）是「可逆 = CRUD 并↔拆双向」+「账号资产保护」的必要退路 —— 误发 / 审后反悔 / 内容需下架时，人能 HITL 撤下，不留不可回收的广播痕迹。
+
+**端点**
+```
+DELETE /api/moments/{tid}
+Authorization: Bearer <token>
+```
+- `{tid}` = 自己动态的 `tid`（publish 返回的、或 v1 读回的）。
+- **仅限自己的动态**（`direction:"out"`）：删他人动态微信本就不允许 → 传入他人 tid 返 `MOMENT_NOT_OWNED`。
+- **响应**：成功 `{ "ok": true, "tid": "...", "backup": { "text": "...", "media": [...], "link": {...}|null, "create_time": <int>, "visibility": {...}? } }`；失败 `{ "ok": false, "tid": "...", "code": "MOMENT_NOT_FOUND" | "MOMENT_NOT_OWNED" | "MOMENT_DELETE_FAILED" }`。同 §3.3 口径：**不靠 HTTP 状态码区分语义**（`MOMENT_NOT_OWNED` 建议 HTTP 403）。
+- **✅ backup 形态（AMR 定稿 2026-07-21·收下 PD 提案）** = `{text, media, link, create_time, visibility?}`——供 AMR/AMP 侧审计留档 +「删错可重发」。**可靠性分级（诚实标注）**：`text` / `link` / `create_time` / `visibility` **可靠**；`media` 给 `ref`（读向端点、v1 §2 语义）**但删后字节可能被清（best-effort）** → 「重发」对纯文/链接**保证**、对带图**尽力**；需可靠重发媒体 → v.next 后端删前把媒体字节落一份持久备份（现 YAGNI）。AMR **无条件把 backup 落审计**。
+- **幂等（no-op 无 backup）**：动态已不存在 = no-op，返回 `{ "ok": true }`**不带 backup**（已达期望态、无东西可读回）；调用方须容忍幂等重放时 backup 缺席——`backup` 仅在**真删那一次**给。
+
+**不可逆 → 删前必备份（CRUD 铁律「删除先备份」）**：微信删动态**无 un-delete**。故后端删前先**读回该帖信封（text/media/link/tid/create_time）返给调用方留档**，供 AMR/AMP 侧审计与「删错可重发」；**再执行删**。
+
+**GUI 原语**：自号动态 → ⋯ / 长按 → Delete → **原生二次确认对话框**（微信对删自己动态弹「确定删除?」）→ 确认。这是 moments 动作里**唯一带二次确认**的（∵ 删整帖不可逆、最重）。
+
+**HITL（最重 · 同 §7）**：删除已发广播 = 与发布同级的对外重动作。**永远人审后才删、永不自动删**（不进任何自动闸）。调用前 AMR/AMP 侧人确认删哪条 + 看回备份信封；后端哑执行。留痕：谁 / 何时 / 删了什么（备份信封 + tid）。
+
+**capabilities**：`publish.delete: true`（未实现前 `false`）。
+
+---
+
 ## §8 AMR / AMP 侧消费语义（fullwechat 不实现）
 
 > 本节是上层模型，记此帮后端理解接口设计；fullwechat 无需实现。
@@ -209,7 +237,7 @@ AMR/AMP 起草内容（含 LLM assist 可选）
 `/api/capabilities` 的 `moments` 扩展（在 v1 `read`/`like` 基础上加 `publish`）：
 ```json
 { "moments": { "read": true, "like": true,
-  "publish": { "text": true, "image": true, "link": true, "video": false } } }
+  "publish": { "text": true, "image": true, "link": true, "video": false, "delete": true } } }
 ```
 
 | 能力 | 含义 | 调用方降级 |
@@ -218,6 +246,7 @@ AMR/AMP 起草内容（含 LLM assist 可选）
 | `publish.image` | 支持带图发布 | `false` → 带图草稿灰掉，仅纯文/链接可发 |
 | `publish.link` | 支持链接卡片 | `false` → 链接降级为文中明文 URL |
 | `publish.video` | 支持视频 | `false`（v2 后期） → 视频草稿灰掉 |
+| `publish.delete` | 支持删除自己已发动态（§7.5） | `false` → AMR/AMP 隐藏「撤下动态」入口 |
 
 - 分阶段上线：**text 先上，image/link 次之，video 后期**；调用方按声明降级，**绝不**对未声明能力硬发。
 - `publish` 整项缺失 → 按「不支持发布」处理（只读 + 点赞，回落 v1）。
@@ -233,7 +262,7 @@ AMR/AMP 起草内容（含 LLM assist 可选）
 | 空动态 | text/media/link 皆空 → `EMPTY_CONTENT` 拒发。 |
 | 媒体上限 | fullwechat 校验（图 ≤9 / 视频单条受限）；超限 → `MEDIA_LIMIT_EXCEEDED`，不静默截断。 |
 | `idempotency_key` 窗口 | 建议 ≥24h；过窗后同 key 视为新发（调用方不应跨天复用 key）。 |
-| 取消/删除已发动态 | v2 **不做**（YAGNI）。删动态是高危对外动作，留待专契约 + 强 HITL。扩展位：未来 `DELETE /api/moments/{tid}`，capabilities 另开 `publish.delete`。 |
+| 删除已发动态 | **v2.1 纳入**（§7.5 · 可逆 CRUD）：`DELETE /api/moments/{tid}`，仅自己动态、删前读回信封备份、原生二次确认对话框、强 HITL；capabilities `publish.delete`。 |
 | 评论 | v2 不纳入（同 v1 §7 YAGNI）。 |
 | `direction` | 发布产物天然 `out`（自己发的）；读回时按 v1 §2.1 规则。 |
 | 公开仓 | 本契约示例全合成（无真实 PII / token / wxid）。 |
@@ -248,6 +277,7 @@ AMR/AMP 起草内容（含 LLM assist 可选）
 | 媒体贴入 | 下载 `ref` → paste-image/paste-file + GTK 文件选择贴进发表器。 |
 | 可见范围 | 朋友圈「谁可以看」面板按 `visibility.mode` + `wxids` 勾选。 |
 | 回 tid | 发布后读 `sns.db SnsTimeLine` self 最新一条。 |
+| 删除执行 | nav 到自己该帖 Details → ⋯ / 长按 → Delete → 原生确认对话框「确定」；删前读回 `sns.db` 该 tid 信封留档；仅 `direction:out`（他人 tid → `MOMENT_NOT_OWNED`）。 |
 | 幂等 | 本地存 key→tid 映射（窗口 ≥24h），命中直接回原 tid，不触发发表器。 |
 | 限速 | 单次动作内可兜底发布间隔/避风控（拟人）；批量排期归上层。 |
 
@@ -259,4 +289,6 @@ AMR/AMP 起草内容（含 LLM assist 可选）
 
 ---
 
-*本契约版本：v2 / 2026-06-28（评审 fullwechat 草案后定稿）。读+点赞见 v1。下次修订标 v2.1。*
+*本契约版本：v2.1 / 2026-07-20（新增 §7.5 删除已发动态 delete-moment · 可逆 CRUD · 修订原 §10「不做」+ capabilities `publish.delete`）。v2 / 2026-06-28 = 发布定稿。读 + 赞/评 + 取消赞/删评论见 read-like v1.2。*
+
+> **AMR 定稿裁定 2026-07-21**：delete-moment `backup` 形态 = `{text, media, link, create_time, visibility?}`（§7.5，可靠性分级：文/链接保证、媒体 best-effort；幂等 no-op 不带 backup）；错误码归一 `MOMENT_NOT_OWNED`（原 `NOT_OWN_MOMENT`）/ `MOMENT_DELETE_FAILED`（原 `DELETE_FAILED`），三码并入 §3.3；命名对齐 send-target/canonical 名词前置风格。*
