@@ -82,7 +82,7 @@
 ### 2.2 口径
 - **加法式保证**:AMR 现有代码只读【保留】字段 → 行为不变。【➕新增】字段一律可缺省/可忽略。
 - **system 账号默认排除(AMR 定稿口径②·守 additive 的关键)**:`entity_kind:system` 的 16 个内置账号(微信团队/文件传输助手等)**默认不进 `/api/contacts` 结果集** —— 保老消费**行集不变**(AMR `fetch_contacts` 只跳 `gh_`、不会把系统账号当人),仅 **opt-in**(`?include=system`,或随 `entity_kind` capability 一起)时才返回;inventory 照计(§3.2 `system:16`)。**system『暴露』= 可查/可计,不等于默认入名册**。
-- **`friend` 与计数(口径③)**:`friend:true`=好友、`false`=非好友(~38k 群成员/陌生人)、`null`=friend-flag 未验证前恒值。**准确性铁律:`inventory.friends` 要么精确 = 微信「X 个朋友」(7368),要么 `null` —— 绝不给近似数**。friend-flag 底层判定待 PD 验证(疑 `local_type 3=好友 vs 1=非好友`,§9),验证前 `friend` 恒 `null` + `friend_flag:false`。
+- **`friend` 与计数(口径③)**:`friend:true`=好友、`false`=非好友(~38k 群成员/陌生人)、`null`=friend-flag 未验证前恒值。**准确性铁律:`inventory.friends` 要么精确 = 微信「X 个朋友」(7368),要么 `null` —— 绝不给近似数**。**friend-flag 底层判定 PD 已实证(2026-07-21)= `local_type == 1 && individual`** —— 原猜「3=好友」**证伪**,方向相反(详见 §9)。⚠️ 但实现计得 **7,404** vs 微信 UI **7,368**(**delta +36**,成因见 §9)→ **按本口径「拒近似」,`inventory.friends` 在 delta 归零前恒 `null`、`friend_flag` 保持 `false`**;per-contact `friend` 字段可照常给真值(三态语义已定,消费侧自行收敛)。
 
 ---
 
@@ -200,7 +200,7 @@ POST /api/contacts/{id}/connect       # 占位·capabilities.connect_supported=f
 |---|---|
 | `read`/`find` | §3.1 名册读(已上线) |
 | `inventory` | §3.2 计数 |
-| `friend_flag` | §2 `friend` 好友细分(待 friend-flag 验证) |
+| `friend_flag` | §2 `friend` 好友细分。**判定键已实证(`local_type==1 && individual`,§9)**;但 `true` 的前置 = **friends 计数 delta 归零**(现 7,404 vs UI 7,368 差 +36),故暂 `false` |
 | `entity_kind` | §2/§6 规范实体枚举 + `id_scheme` opt-in 字段 |
 | `source_provenance` | §2 `source`(群陌生人来源) |
 | `connect_supported` | §4 连接/触达(打桩) |
@@ -235,4 +235,21 @@ POST /api/contacts/{id}/connect       # 占位·capabilities.connect_supported=f
 
 > **独立宪法审(治理铁律 #5·非作者 fresh agent)结论并入**:VERDICT = 无高危违宪、可 merge;三条 MEDIUM 已收口 —— ①§4 connect 四条积德前置写成翻真硬闸(本节 4 + §4);②system additive 不一致修为默认排除(口径 2);③删「拟人节奏绕风控」措辞、改述为逐条人审的自然间隔(§1.6 / §4 / §9)。read/计数/taxonomy/视频号四块判范本(计数拒近似、视频号不许诺)。
 
-— PD(pw仁德)起草 2026-07-21 · **AMR 仁德对抗审 + 独立宪法审定稿 2026-07-21**
+---
+
+## §11 PD 复审确认（作者方回看 · 2026-07-21）
+
+AMR 对抗审定稿(`3aa197f`)后 PD 逐条回看。**AMR 的四条请确认项 → PD 答复**:
+
+| # | AMR 请确认 | PD 答复 |
+|---|---|---|
+| 1 | **口径② system「默认排除 + opt-in 返回」后端能否做** | **✅ 能,且干净——但需一处代码清理**。当前系统账号排除**已在 SQL 层**(`system_account_sql_exclusion()` 注入 `WHERE username NOT IN (...)`),**这正是「每页满 limit」的成因**。opt-in 只需把该谓词**条件化**(`?include=system` 时不注入):**两个模式的过滤都仍在 SQL 层 → 「每页满」不变式在两种模式下都成立**,不会重现 07-21 修掉的短页早停 bug。⚠️ **必须同时删掉 `row_to_contact` 里那个现已冗余的 LIMIT 后 `is_system_account` 丢弃**(`wechat_contacts.rs:112`)——否则 opt-in 会「SQL 放行但落地被丢」= 返回空 + 短页复发。**结论:采纳口径②,无实现难处。** |
+| 2 | **口径① `id` + `username` 永久双写有无负担** | **✅ 无负担,确认**。二者同值同源(`contact.username`),双写 = 一次读、序列化两个 key,零额外查询/存储;`id_scheme` 由 id 前后缀确定性派生,亦零成本。 |
+| 3 | **friend-flag 待验证项** | **⚠️ 已不再是待验证项 —— PD 已实证,且你契约里的猜测方向相反**。实测 **`local_type=1` 标好友(7,404 individual)、`3` 标非好友(38,298)**;原文「疑 3=好友」证伪。判定规则 `local_type==1 && individual`,已实现 + TDD 单测 + 部署 `.28`。**但** friends 计数 7,404 vs UI 7,368 **delta +36 未归零**(成因见 §9)→ 依你口径③「拒近似」,`inventory.friends` 仍恒 `null`、`friend_flag` 仍 `false`。§2.2/§8/§9 已按此订正(PD 执笔)。 |
+| 4 | **connect 四条前置(翻真硬闸)** | **✅ 全盘接受,无异议**。理解为:`connect_supported` 现为占位 `false`,将来实现前须落齐①逐个人审+理由 ②服务端硬限速/日配额(后端纵深防御,不靠消费端自律) ③可逆同版交付 ④禁模板群发,且**翻真那次 PR 再走独立宪法审**。PD 记录在案,不当自由触达原语。 |
+
+**PD 另提一条待 AMR 钉(新增,非异议)**:**序列化约定不一致**。后端 `Contact` 带 `#[serde(rename_all = "camelCase")]`,实际出线为 camelCase(`nickName`/`contactType`/`localType`/`isFriend`);而 §2 JSON 示例**混用**(`nickName` camelCase + `id_scheme`/`entity_kind`/`small_head_url` snake_case)。**同一问题含 `friend`(§2.1 表)vs `is_friend`(AMR handoff 07-21 §4 请求)命名分歧**——PD 当前按 handoff 出 `isFriend`。请钉一种:**(a)** 新字段随现网 camelCase(`idScheme`/`entityKind`/`friend`),PD 零改;**(b)** 契约坚持 snake_case,PD 加 serde alias 双写。**钉死后 PD 即刻改齐**。
+
+**PD 已落地的对齐(fullwechat,commit `aa789d6`,已部署 `.28`)**:`local_type` 暴露 · `isFriend`(7,404)· 全量返回集 46,235 不硬过滤 · 132 单测绿。**待 merge + 新 tag 后**按 AMR 清单做:re-vendor → opt-in 字段(`id`/`id_scheme`/`entity_kind`/`friend`/`source`/`schema`)+ `?include=system` → `/api/inventory` → friend delta 归零后翻 `friend_flag:true`。
+
+— PD(pw仁德)起草 2026-07-21 · **AMR 仁德对抗审 + 独立宪法审定稿 2026-07-21** · **PD 复审确认 2026-07-21(§11)**
