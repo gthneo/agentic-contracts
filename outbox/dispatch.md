@@ -2,11 +2,15 @@
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`outbox/` → AMR/@gthneo）。
 >
-> **日期** 2026-07-21（rev1/rev2 2026-07-22）｜ **状态** **提案·rev2**——AMR仁德 对抗审 → PD仁德 确认 → rev1 → AMR仁德 rev1 复核（3 BLOCKING 真落实、宪法无 FAIL，卡 5 个单行口子）→ **本 rev2 = PD仁德 补 R1–R5 + 5 建议**，待 AMR仁德 非作者 fresh agent 复核 rev2 delta → 班迪 merge。**不 merge。**
+> **日期** 2026-07-21（rev1/rev2 2026-07-22 · rev3 2026-07-23）｜ **状态** **提案·rev3**——AMR仁德 对抗审 → PD仁德 确认 → rev1 → AMR仁德 rev1 复核（3 BLOCKING 真落实、宪法无 FAIL，卡 5 个单行口子）→ **rev2 = PD仁德 补 R1–R5 + 5 建议** → **rev3 = PD仁德 据班迪 SF1 拍板补 `pause` 硬化（`cancel` 明确不硬化）**，待 AMR仁德 非作者 fresh agent 复核 rev3 delta → 班迪 merge。**不 merge。**
 > **from** PD仁德（powerdata-wx / fullwechat 微信后端，`/Users/neo/as/fullwechet`）—— 契约执笔 + 实现方
 > **to** AMR仁德（AgenticMessageRouter，`/Users/neo/as/agenticmessagerouter`）—— 契约定义/审计方 + 下单方
 > **姊妹契约** `../send-target/*`（同步发送目标）· `../message/canonical.md`（入站消息）· `../moments/read-like.md`（朋友圈动作）
 > **适用范围** **出站动作的排队派发**：消费方**人审确认后**并行下单 → 后端单 worker 串行 + 拟人节奏执行 → 结果异步取回。**不覆盖**动作本身的语义（发什么/赞哪条见姊妹契约），也不覆盖入站。
+
+### rev3 变更摘要（SF1·班迪 2026-07-23 拍板）
+- **SF1（HITL 护盾·硬化）** §7.1/§6：`pause`（全局急停闸）升格为**强制不变式（MUST）**，与 `account` 同列——`"pause"` **恒为 `true`**、不可声明 `false`；若某实现报 `pause:false` 或不提供可用的全局急停，即为**违约**，消费方 **MUST 拒绝对其下单**（一个「停不下来」的出站后端不得被允许对外发送）。堵「一句 `pause:false` 让人失去急停刹车」。
+- **`cancel` 明确不硬化（SF1 反面）** §6/§7.1：`cancel` 是**次级兜底、非主 HITL 闸**（主闸在上游人审，§0/§1.8）+ R5 已约束其语义（`running` 不可撤），故**保留普通能力位**（可声明 `false`，消费方优雅降级：隐藏撤单入口、靠上游人审 + `pause` 兜底），**不升格 MUST**，避免过度约束未来实现。
 
 ### rev2 变更摘要（对 AMR仁德 rev1 复核·2026-07-22）
 - **R1（merge前必改·红线）** §0：强制人审闸主语从「AMR仁德」→ **全体消费方 MUST** + 新消费方准入前置（声明其闸位置/形态,未声明不得下单）—— 堵「非 AMR 消费方无闸直调」。
@@ -222,7 +226,7 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 | `POST /api/outbox/resume` | 恢复 |
 | `GET /api/outbox?status=queued` | 已确认待放清单（运行态可见，非人审闸本身） |
 
-- **`pause` 是人的急停闸**：出任何异常（风控告警 / 内容出错 / 账号异常）先 `pause`，队列不丢。
+- **`pause` 是人的急停闸**：出任何异常（风控告警 / 内容出错 / 账号异常）先 `pause`，队列不丢。**（rev3·SF1：`pause` 硬化为 MUST 不变式，见 §7.1——任何实现都 MUST 给人可用的全局急停，不得报 `pause:false`；与 `cancel` 不同,`cancel` 保留可降级。）**
 - 暂停期间 worker **仍然活着**（§7.2 `paused` 与 `alive` 分开报），便于区分「人为停」与「卡死」。
 - **留痕交叉引用（建议2）**：端到端可追溯 = **人审决策留痕在消费方侧**（AMR仁德 `log_event`，谁/何时确认）+ **后端执行留痕**（每次 GUI 动作的执行结果/时刻/`lastError` 落 `outbox` 行,`pause`/`cancel`/紧急越权亦留痕）。两段拼起来才是完整的「谁批的 → 何时发的 → 结果如何」链条。
 
@@ -239,6 +243,10 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 （`receipt` = `["poll"]`（§4 定案）；未实现的能力报 `false` / 不列。）
 
 **⚠️ `account` 不是可选能力位（rev2·R4 收口）**：`account` 维度 + `WRONG_ACCOUNT` 硬校验是**强制不变式（MUST）**，账号守恒是 0 号宪法铁律 5，**不受 capabilities 声明影响**——`"account"` 在此**恒为 `true`**，仅作可发现性回显，**不是一个可被降级的开关**。若某实现**报 `account:false` 或不做 `WRONG_ACCOUNT` 校验**，即为**违约**，消费方 **MUST 拒绝对其下单**（不得靠字符串巧合放行）。这条堵死「用一句 `account:false` 合法降级掉账号守恒」的口子。
+
+**⚠️ `pause` 是不可降级的急停闸（rev3·SF1 收口）**：`pause`（全局急停，§6）与 `account` 同列**强制不变式（MUST）**——它是人的**紧急刹车**，HITL 一等（§1.8/§8）+ 0 号宪法「人在回路」的落点。`"pause"` 在此**恒为 `true`**，仅作可发现性回显，**不是一个可被降级的开关**。若某实现**报 `pause:false` 或不提供可用的全局急停**，即为**违约**，消费方 **MUST 拒绝对其下单**——一个「停不下来」的出站后端不得被允许对外发送。这条堵死「一句 `pause:false` 让人失去急停闸」的口子。
+
+**↔ 对比 `cancel`（rev3·SF1 明确不硬化）**：`cancel`（§6·撤单）是**次级兜底、非主 HITL 闸**（主闸在上游人审确认，§0/§1.8），且 R5 已约束其语义（`running` 不可撤）。故 `cancel` **保留为普通能力位**（可声明 `false`）——实现未提供撤单时消费方**优雅降级**（隐藏撤单入口，靠上游人审 + `pause` 兜底），**不升格 MUST**，避免过度约束未来实现。二者的区分标准 = **「缺了它人是否失去安全底线」**:缺 `pause` = 人没了急停刹车(致命)→ MUST;缺 `cancel` = 还有上游人审 + pause(可接受)→ 可选。
 
 ### 7.2 worker 活性 + 排空可观测（S3）
 `GET /api/health/deep` 内：
