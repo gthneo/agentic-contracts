@@ -9,7 +9,7 @@ agentic-contracts PR 模板 —— 治理铁律见 GOVERNANCE.md（先读）。
 
 ## 治理清单（逐条勾，缺一不可）
 
-- [ ] **已对照 `00-CONSTITUTION.md`**——本变更**无旁路人的路径**（对外动作仍走人审/否决窗，自动挡不自升，结果回交给人）。
+- [ ] **已对照 `00-CONSTITUTION.md`**——本变更**人随时能收回**（总闸可断 / 协作档可降 / 动作可撤 / 全程有痕）；对外动作只在人设定的协作档内执行、每档有手柄 + 撤回窗 + 留痕；档位人手拨不自升、异常自降到 `draft`；不可逆动作封顶 `semi`；结果回交给人看；**没另造档位词汇**（守宪法六档）。
 - [ ] **改的是契约本体，非本地补丁**——口径变更落在本仓 spec，**没有**在某个消费方仓里硬编码私自解释绕过。
 - [ ] **跑了 conformance**——`python3 scripts/conformance.py` 本地绿（CI 的 `conformance` check 也必须绿）。
 - [ ] **独立 agent 对抗审过（贴结论）**——由一个**非作者**的 fresh Claude Code agent 对着 `00-CONSTITUTION.md` + 相关契约 + conformance 做对抗式审查，结论贴在下方。

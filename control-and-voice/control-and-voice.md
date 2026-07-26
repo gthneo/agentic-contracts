@@ -48,14 +48,28 @@ HUMAN 态期间，对该账号：
 | **读**（消息/动态/名册） | **照常** | fullwechat 读全走 **SQLCipher 直读库**（message.db/sns.db/contact.db），**不碰 GUI** → 不冲突、界面不变、不用锁 |
 
 **即：界面归人独占，Agent 仍可后台从库里读。** AMR 据此对该账号：
-- **暂停**：outbox confirm（真发）、moments like/publish、自动回 arm/countdown、主动 opener 发送 —— 一切对外写。
+- **暂停**：outbox confirm（真发）、moments like/publish、自动投放（**含拟人延迟队列中的待发**）、主动 opener 发送 —— 一切对外写。
 - **照常**：ingest/poll 读入库、recall、染色、拟草稿（草稿进 `suggestions`/候选，**不发**）、UI 展示。
 
-**实现位置**：本态在 AMR 侧表现为一个**每账号的「人占」闸**，**位于既有 killswitch / 自治挡之上**（最外层）：
+> **这两行合起来 = 0 号宪法「异常必自降 → 收缩到 `draft`」的既有实现**：HUMAN 态下 Agent **停手不停脑**
+> ——对外写全停（不是 `off`），拟稿照常（正是 `draft` 档）。人接手时仍有参考，恢复也不用重算。
+
+**实现位置**：本态在 AMR 侧表现为一个**每账号的「人占」闸**，**位于既有 killswitch / 协作档之上**（最外层）：
 ```
-对外写许可 = (人占闸=AGENT) ∧ (全局 killswitch off) ∧ (会话自治挡 ∈ observe/supervised 的相应许可) ∧ (双闸…)
+对外写许可 = (人占闸 = AGENT)
+           ∧ (全局 killswitch = off)
+           ∧ (生效协作档 ≥ semi，且该档要求的人确认已取得)
+           ∧ (准入条件满足：双闸 / 时段 / 限频)
+           ∧ (本动作未被 0 号宪法「封顶表」卡住)
 ```
-HUMAN 态 → 人占闸关 → 该账号所有对外写直接挡下（候选可继续算、可展示「人占中，暂不发」，但 arm/confirm 被拒）。`human_released` → 人占闸开 → 恢复。
+- **`生效协作档` = `min(账号封顶档, 所属授权组档（多组取最小）, 会话档)`**，值域 = 0 号宪法六档梯子
+  `off < draft < semi < parallel < audit < auto`。`off` / `draft` 两档**不产生任何对外写**。
+- **`准入条件` 不是档位**（旧口径里的 `supervised` 降级到这里）：它决定该场**能否进 `semi` 以上**，
+  不决定进到哪一档。
+- **旧口径对照（本文件 v1）**：`会话自治挡 ∈ observe/supervised` → `observe` 读作 `draft`、
+  `supervised` 读作 `semi` + 准入条件。旧值域 2026-07-26 随 0 号宪法 v2 废止。
+
+HUMAN 态 → 人占闸关 → 该账号所有对外写直接挡下（候选可继续算、可展示「人占中，暂不发」，但投放/confirm 被拒）。`human_released` → 人占闸开 → 恢复。
 
 ---
 
@@ -182,7 +196,7 @@ Authorization: Bearer <token>
 | 事项 | 口径 |
 |---|---|
 | 多账号 | 控制态/口吻**按账号独立**。A 号 HUMAN 不影响 B 号 AGENT。 |
-| 人占闸 vs killswitch vs 自治挡 | 三者**与（AND）**关系，人占闸最外层；任一不许可即不对外写。人占闸由控制态自动驱动，不需人手动拨。 |
+| 人占闸 vs killswitch vs 协作档 | 三者**与（AND）**关系，人占闸最外层；任一不许可即不对外写。人占闸由控制态自动驱动，不需人手动拨——它就是 0 号宪法「**系统绝不自升、异常必自降**」在本契约里的落地：人一到场，该账号**自动收缩到 `draft`**（停手不停脑），人走了才恢复。**系统只会这样自降，永不自升**。 |
 | 读永不暂停 | HUMAN 态只停**对外写 / 驱动 GUI**；读（DB 直读）永远照常，保证 AMR 上下文不断、界面不变。 |
 | 拉不到 control_state | 对 `state:true` 账号**保守按 HUMAN（暂停对外写）**；恢复需拿到明确 `state:"agent"`。 |
 | `authored_by` 判不准 | 省略 → AMR 按「未知」，**不计入口吻 ground truth**（不污染口吻，也不误判为 human）。 |
@@ -199,4 +213,7 @@ fullwechat 实现 §5（检测 / control_state / `authored_by` / 推送），AMR
 
 ---
 
-*本契约版本：v1 / 2026-06-28。`authored_by` 并入 message-canonical 后，其字段定义以本契约 §4.1 为准。下次修订标 v1.1。*
+*本契约版本：**v1.1** / 2026-07-26（修订：§2 对外写许可公式换用 0 号宪法 v2 的**六档协作梯子** +
+三层作用域 + 准入条件项，废旧值域 `observe/supervised` 与 `countdown`；写明 HUMAN 态 = 自动收缩到 `draft`。
+**无 schema 变更**，§7 信封与 §6 能力声明一字未动）。v1 = 2026-06-28 初版。
+`authored_by` 并入 message-canonical 后，其字段定义以本契约 §4.1 为准。*
