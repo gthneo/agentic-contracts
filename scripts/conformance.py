@@ -104,6 +104,9 @@ def validate_read_signal(obj: object) -> list[str]:
 RICH_FILE_CDN = frozenset({"recoverable", "expired", "unknown"})
 RICH_FILE_STATUS = frozenset({"local", "recoverable", "expired"})
 RICH_FILE_REQUIRED = ("file_id", "name", "provenance", "has_local", "cdn", "status", "retrieval_path")
+# v1.5 §2 / §4.5：可选的范围档。out 必带原因，其余档不得带原因。
+RICH_FILE_SCOPE_LANE = frozenset({"realtime", "periodic", "out"})
+RICH_FILE_SCOPE_REASON = frozenset({"policy_off", "not_allowlisted", "over_size_cap"})
 
 
 def validate_rich_file(obj: object) -> list[str]:
@@ -130,6 +133,17 @@ def validate_rich_file(obj: object) -> list[str]:
             viol.append(f"status {st!r} 与 has_local={hl}/cdn={cdn!r} 不一致（应派生为 {derived!r}，§2 local 优先）")
     else:
         viol.append("has_local must be a bool (§2)")
+    if "scope_lane" in obj:
+        lane = obj.get("scope_lane")
+        if lane not in RICH_FILE_SCOPE_LANE:
+            viol.append(f"scope_lane {lane!r} not in {sorted(RICH_FILE_SCOPE_LANE)} (§2 v1.5)")
+        elif lane == "out":
+            if obj.get("scope_reason") not in RICH_FILE_SCOPE_REASON:
+                viol.append(f"scope_lane=out 须带 scope_reason ∈ {sorted(RICH_FILE_SCOPE_REASON)} (§2 v1.5)")
+        elif "scope_reason" in obj:
+            viol.append(f"scope_reason 只在 scope_lane=out 时给（现为 {lane!r}，§2 v1.5）")
+    elif "scope_reason" in obj:
+        viol.append("scope_reason 不能脱离 scope_lane 单独出现（§2 v1.5）")
     prov = obj.get("provenance")
     if not isinstance(prov, dict):
         viol.append("provenance must be an object (§2.1)")

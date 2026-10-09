@@ -7,4 +7,9 @@
 - `valid_recoverable.json` — `has_local=false ∧ cdn=recoverable`，派生 `status=recoverable`；带 `expire_at`（排抢救优先级）+ 只给 `retrieval_path`（后端不知外部 base）。
 - `valid_expired.json` — 壳，`has_local=false ∧ cdn=expired`，派生 `status=expired`；只留元数据 + provenance，无 retrieval（诚实告诉消费方「曾有此文件但已丢」）。
 
+v1.5 范围档（§2 `scope_lane` / §4.5 大群周期档）：
+
+- `valid_scope_periodic.json` — 大群里 2.5 MB 的文件，`large_periodic` 开着、未超上限 → `scope_lane=periodic`。
+- `valid_scope_over_cap.json` — 大群里 300 MB 的文件，超过 `large_max_mb`（默认 200）→ `scope_lane=out` + `scope_reason=over_size_cap`（消费方列给人决定）。
+
 `scripts/conformance.py` 对每条校验：必填字段 / status 与两轴一致 / provenance.msg_id 非空且全局唯一（归类钩子）。

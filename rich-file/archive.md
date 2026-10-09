@@ -1,6 +1,6 @@
 # 富文件归档契约 v2 — Rich-File Archive Contract（Inbox 方向·常态下载归档）
 
-> schema 标识：`rich-file.archive/1` ｜ 状态：定稿 v1.4（2026-07-08，§4.5 范围策略裁定 Route A + §3 主动下载禁用机制勘误并入正文 + §5 补 `active_download_disabled` + §7 补对账；接口/schema 不变·向后兼容）
+> schema 标识：`rich-file.archive/1` ｜ 状态：定稿 **v1.5**（2026-10-09，§4.5 加「大群按周期档」`large_periodic` + 单文件上限 `large_max_mb` + item 可选字段 `scope_lane`/`scope_reason`；向后兼容·minor）｜ v1.4（2026-07-08，§4.5 范围策略裁定 Route A + §3 主动下载禁用机制勘误并入正文 + §5 补 `active_download_disabled` + §7 补对账；接口/schema 不变·向后兼容）
 > **from** AgenticMessageRouter (AMR，定义方 / 消费方) ｜ **for** fullwechat / PowerData-WX（实现方）
 > **真相源** 本仓（`agentic-contracts`）。0 号宪法统领。
 > **姊妹契约** `message/canonical.md`（本契约是其 `file`-kind 的归档扩展，不另起数据模型）。
@@ -44,6 +44,8 @@
 | `expire_at` | int | 否 | CDN 到期 unix 秒。`cdn=recoverable` 时**应给**（排下载优先级）。 |
 | `retrieval_path` | str | 是 | 取件真相：相对路径 `/api/media/{chat}/{msg_id}`，拼 `capabilities.rich_files.base_url`。 |
 | `retrieval_url` | str | 否 | 取件便利：绝对 URL。后端知道自己外部 base 时填，否则省。 |
+| `scope_lane` | enum | 否（v1.5） | **范围档**（§4.5 分类判定的结果，由持有策略的后端算、消费方直接读，**不在两侧各算一遍**）：`realtime`（随增量即时下载）/ `periodic`（按周期批量下载）/ `out`（不自动下载）。`capabilities.rich_files.scope_lane=true` 时**每条必给**。 |
+| `scope_reason` | enum | 否（v1.5） | 仅 `scope_lane=out` 时给，说明为什么不自动下：`policy_off`（该档开关没开）/ `not_allowlisted`（大群不在白名单且没开周期档）/ `over_size_cap`（大群周期档里超过单文件上限 —— **消费方应把这类件列给人决定**，不得静默丢弃）。 |
 
 ### 2.1 provenance
 
@@ -95,16 +97,22 @@
 {
   "small_group_max": 20,          // 成员数 ≤ 此 ⇒ 小群 ⇒ 落"小群"档。私聊(1–2人)天然落此档。
   "dm_auto": false,               // 私聊(1:1)自动在册开关,【默认关·opt-in】,人在前端显式开。
-  "documents":   { "auto_small": false, "large_allow": ["<chatId>@chatroom", …] },  // 默认关
-  "audio_video": { "auto_small": false, "large_allow": [] }   // 下一轮启用,默认全关
+  "documents":   { "auto_small": false, "large_allow": ["<chatId>@chatroom", …],  // 默认关
+                   "large_periodic": false,   // v1.5:不在白名单的大群按周期批量下载,【默认关·opt-in】
+                   "large_max_mb": 200 },     // v1.5:大群周期档的单文件上限(MB),超过的不自动下、列给人
+  "audio_video": { "auto_small": false, "large_allow": [],    // 下一轮启用,默认全关
+                   "large_periodic": false, "large_max_mb": 200 }
 }
 ```
+> **v1.5 · 大群按周期档（王丁焱 2026-10-09 审定）**：此前大群只有「白名单 → 下 / 不在 → 不下」两态，白名单默认空 = 大群一份都不主动下，与「算料完整」相悖。新增**第三态**：`large_periodic=true` 时，不在白名单的大群文件按**周期批量**下载（不随增量即时下），且**单文件 ≤ `large_max_mb`** 才自动下；超过的标 `scope_reason=over_size_cap`、**列给人决定**。上限的理由是盘增长有界：真机近 60 天过期的群文件里，超过 100 MB 的多是安装包 / 压缩包（`.exe` / `.dmg` / `.zip`，最大 808 MB），而 200 MB 仍覆盖业务大件（三维模型 `.stp` 125.8 MB、PDF 148.5 MB）。
+> **周期由消费方定、必须短于 CDN 保留期**（§0 保留窗以天计）：周期档的「每天几次」是 AMR 侧的调度，不入本契约；本契约只规定**哪些件属于周期档**。
+> **向后兼容（PUT 整对象替换的缺省规则）**：v1.5 新增的 `large_periodic` / `large_max_mb` 在 `PUT` 中**缺省 = 保持现值**（不重置为默认）——防止尚未升级、会剥掉未知字段的旧消费方一次 PUT 就把人开好的周期档静默关掉。显式给出的值照常整替换。`large_max_mb` 须为正整数，非法值后端拒收（typed error），不得静默改写。
 > **默认 opt-in（守 §4「按会话自动下载 = 人可开关的 gate」条 + 宪法「不得甩手全自动、人被旁路」）**：所有 `auto_*` **出厂默认关**，**人在 AMR 前端显式开启某档才自动归档**——不得在人未配置前静默把每个私聊/小群的文件自动归档。这是自动归档 PII 的安全地基。
 
-**分类判定**（纯函数，两侧应一致）：私聊 → `dm_auto && <type>.auto_small`；群 `n≤max` → `<type>.auto_small`；群 `n>max` **或成员数未知** → `chat_id ∈ <type>.large_allow`（**未知按大群**，保守不静默归档无界大群）。成员数取 `group-metadata` 的 `member_count`。
+**分类判定**（纯函数；v1.5 起结果由后端写进 item 的 `scope_lane`，消费方直接读）：私聊 → `dm_auto && <type>.auto_small` ⇒ `realtime`；群 `n≤max` → `<type>.auto_small` ⇒ `realtime`；群 `n>max` **或成员数未知** → `chat_id ∈ <type>.large_allow` ⇒ `realtime`（人逐个点名的群，不设上限）；否则 `<type>.large_periodic && size ≤ large_max_mb×2²⁰` ⇒ `periodic`；否则 `out`（`scope_reason` 依次为 `policy_off` / `not_allowlisted` / `over_size_cap`）。**未知按大群**，保守不静默归档无界大群。成员数取 `group-metadata` 的 `member_count`。`size` 缺失或为 0 的大群件按**超上限**处理（判不出大小 ⇒ 不自动下、列给人），不得当成 0 字节放行。
 > **member_count 是近似值（`group-metadata` 声明 best-effort，`roster:false` 下不精确）**——本判定拿它当小/大群闸，**误分类只会向保守侧降级**（把小群误判成大群 → 需白名单 → 不会静默归档），**绝不向"静默归档无界大群"降级**。故近似可接受。
 
-**端点（Route A · 落 PD）**：`GET /api/files/policy`（前端读，未配过返上述 opt-in 默认）、`PUT /api/files/policy`（前端整对象替换、人在环路写）、`GET /api/files?in_scope=true`（只返在册件，省略=全返·向后兼容）、`capabilities.rich_files.policy:bool`（就绪位）。
+**端点（Route A · 落 PD）**：`GET /api/files/policy`（前端读，未配过返上述 opt-in 默认）、`PUT /api/files/policy`（前端整对象替换、人在环路写；v1.5 新字段缺省 = 保持现值）、`GET /api/files?in_scope=true`（只返在册件 = `scope_lane ∈ {realtime, periodic}`，省略=全返·向后兼容）、`capabilities.rich_files.policy:bool`（就绪位）、**`capabilities.rich_files.scope_lane:bool`（v1.5 就绪位：每条 item 带 `scope_lane`）**。
 
 **边界重申**：策略只决定"**什么在册**"，**不亲自抓字节**——文件靠微信原生「浏览即下载」落盘、后端按内容哈希（`md5+size`）认出（见 §3「机制现实」+ §3 主动下载禁用注）。在册但未落盘的真缺件，**主动抓取待安全触发**（§3 已禁 GUI-drive 主动下载，返 `active_download_disabled`）。**配置先行、引擎后补，不冲突。**
 
@@ -133,6 +141,7 @@ AMR：ingest 拿到 `kind:"file"` → 需要字节时 `POST download` 预热 →
 - **清盘 HITL**：主动下载会长盘 → 契约要求后端 `download:true` 时**必报** `local_bytes`（人/Agent 看得见增长，非可选）；**删除/清盘必人审，后端绝不自动清**。✅
 - **赋能不替代 · 算料是生产资料**：把易失的微信文档封装进契约（可判状态 + 可达取件 + 可区分错误），让它可流通、可归类、可增值。✅
 - **GUI-drive 越界护栏**：GUI-drive 只在 inbound 取件控件上操作（开会话 / 定位消息 / 触发下载 / 读盘），有越界护栏（见 §3 confinement clause），**绝不触达发送 / 转发 / 合成 / 发布控件**。✅（**注**：本 build 主动 GUI-drive download 已禁用〔§3〕，此护栏对该路径**当前不触发（dormant，护栏条款仍在 §3 保留）**；待主动下载以安全触发方案重启用时**重新生效**。）
+- **大群周期档（v1.5 · §4.5）**：`large_periodic` **出厂默认关**，人在 AMR 前端显式开；开了也只下 **≤ `large_max_mb`** 的件，超上限的**列给人决定**（不自动下、也不静默丢）——盘增长有界且可见（`local_bytes`）。周期档只是**读入**（下载 = 可逆地多存一份，`delete-local` 可撤），不触达任何对外动作。✅
 - **范围策略数据落点（Route A · §4.5）**：策略对象单一真相源住 PD（`GET/PUT /api/files/policy`），**后端不自决订阅谁**（只按人所设策略过滤 `in_scope`）；扳手在人——**策略写 = 人在 AMR 前端整对象替换**（`PUT`，human-in-loop write），非 Agent 自动改；`auto_*` 出厂默认关（opt-in），人未开则不自动归档。✅
 - **主动抓取现状**：本 build 主动 GUI download 已禁（返 `active_download_disabled`）；重启用须人审 + 维持 §3 confinement。当前取件走被动「浏览即下载 → 内容哈希认件 → GET /api/media」，无主动越界面。✅
 - **不泄露对外可见信号（断言）**：a11y 打开会话会翻本地 `is_read`；微信个人聊 / 群聊**无对外已读回执**，故此操作**不泄露任何对外可见信号**——**此为断言（经核实无对外回执），非默认假设**。✅
@@ -141,7 +150,7 @@ AMR：ingest 拿到 `kind:"file"` → 需要字节时 `POST download` 预热 →
 ## 8. 版本化 + 能力声明
 
 - schema：`rich-file.archive/1`（承接 `rich-file.rescue/1`，因 rescue 从未实现故一次改名到位）。major（`/2`）= 破坏性另开；minor（doc `vX.Y`）= 向后兼容加字段。
-- 能力位：`GET /api/capabilities.rich_files.{list,download,delete_local,...}`。消费方按能力位优雅降级。
+- 能力位：`GET /api/capabilities.rich_files.{list,download,delete_local,policy,scope_lane,...}`。消费方按能力位优雅降级（无 `scope_lane` = 后端未实现 v1.5，消费方不得自行推断周期档，按 v1.4 两态处理）。
 
 ## 关联
 - 母契约：`message/canonical.md`。根契约：`00-CONSTITUTION.md`（§7 逐条对账）。
