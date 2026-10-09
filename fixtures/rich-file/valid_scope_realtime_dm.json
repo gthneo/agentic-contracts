@@ -1,0 +1,19 @@
+{
+  "file_id": "md5_test_rt_ffff",
+  "name": "报价单.xlsx",
+  "ext": "xlsx",
+  "size": 52000,
+  "provenance": {
+    "chat_id": "wxid_test_zhangsan",
+    "sender_id": "wxid_test_zhangsan",
+    "sender_name": "张三",
+    "sent_at": 1751500000,
+    "is_read": false,
+    "msg_id": "srv_file_rt_0001"
+  },
+  "has_local": true,
+  "cdn": "unknown",
+  "status": "local",
+  "retrieval_path": "/api/media/wxid_test_zhangsan/srv_file_rt_0001",
+  "scope_lane": "realtime"
+}
