@@ -106,7 +106,7 @@ RICH_FILE_STATUS = frozenset({"local", "recoverable", "expired"})
 RICH_FILE_REQUIRED = ("file_id", "name", "provenance", "has_local", "cdn", "status", "retrieval_path")
 # v1.5 §2 / §4.5：可选的范围档。out 必带原因，其余档不得带原因。
 RICH_FILE_SCOPE_LANE = frozenset({"realtime", "periodic", "out"})
-RICH_FILE_SCOPE_REASON = frozenset({"policy_off", "not_allowlisted", "over_size_cap"})
+RICH_FILE_SCOPE_REASON = frozenset({"policy_off", "not_allowlisted"})
 
 
 def validate_rich_file(obj: object) -> list[str]:

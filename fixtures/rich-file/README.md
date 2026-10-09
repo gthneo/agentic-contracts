@@ -9,7 +9,8 @@
 
 v1.5 范围档（§2 `scope_lane` / §4.5 大群周期档）：
 
-- `valid_scope_periodic.json` — 大群里 2.5 MB 的文件，`large_periodic` 开着、未超上限 → `scope_lane=periodic`。
-- `valid_scope_over_cap.json` — 大群里 300 MB 的文件，超过 `large_max_mb`（默认 200）→ `scope_lane=out` + `scope_reason=over_size_cap`（消费方列给人决定）。
+- `valid_scope_periodic.json` — 大群里 2.5 MB 的文件，`large_periodic` 开着 → `scope_lane=periodic`。
+- `valid_scope_periodic_large_file.json` — 同一大群里 300 MB 的文件 → 仍是 `scope_lane=periodic`（**不设大小上限**，审定「一并接收」）。
+- `valid_scope_out_not_allowlisted.json` — 大群、没开周期档、不在白名单 → `scope_lane=out` + `scope_reason=not_allowlisted`。
 
 `scripts/conformance.py` 对每条校验：必填字段 / status 与两轴一致 / provenance.msg_id 非空且全局唯一（归类钩子）。
