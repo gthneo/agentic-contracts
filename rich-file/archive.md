@@ -1,6 +1,6 @@
 # 富文件归档契约 v2 — Rich-File Archive Contract（Inbox 方向·常态下载归档）
 
-> schema 标识：`rich-file.archive/1` ｜ 状态：定稿 **v1.5**（2026-10-09，§4.5 加「大群按周期档」`large_periodic` + item 可选字段 `scope_lane`/`scope_reason`；向后兼容·minor）｜ v1.4（2026-07-08，§4.5 范围策略裁定 Route A + §3 主动下载禁用机制勘误并入正文 + §5 补 `active_download_disabled` + §7 补对账；接口/schema 不变·向后兼容）
+> schema 标识：`rich-file.archive/1` ｜ 状态：定稿 **v1.5**（2026-10-09，§4.5 加「大群按周期档」`large_periodic` + 类型归属 + item 可选字段 `scope_lane`/`scope_reason` + 周期档提交 / 时效 / 呈现义务；§3 过滤先于分页；§5 加 `insufficient_storage` / `invalid_policy`、禁止按大小策略拒收；向后兼容·minor）｜ v1.4（2026-07-08，§4.5 范围策略裁定 Route A + §3 主动下载禁用机制勘误并入正文 + §5 补 `active_download_disabled` + §7 补对账；接口/schema 不变·向后兼容）
 > **from** AgenticMessageRouter (AMR，定义方 / 消费方) ｜ **for** fullwechat / PowerData-WX（实现方）
 > **真相源** 本仓（`agentic-contracts`）。0 号宪法统领。
 > **姊妹契约** `message/canonical.md`（本契约是其 `file`-kind 的归档扩展，不另起数据模型）。
@@ -44,8 +44,8 @@
 | `expire_at` | int | 否 | CDN 到期 unix 秒。`cdn=recoverable` 时**应给**（排下载优先级）。 |
 | `retrieval_path` | str | 是 | 取件真相：相对路径 `/api/media/{chat}/{msg_id}`，拼 `capabilities.rich_files.base_url`。 |
 | `retrieval_url` | str | 否 | 取件便利：绝对 URL。后端知道自己外部 base 时填，否则省。 |
-| `scope_lane` | enum | 否（v1.5） | **范围档**（§4.5 分类判定的结果，由持有策略的后端算、消费方直接读，**不在两侧各算一遍**）：`realtime`（随增量即时下载）/ `periodic`（按周期批量下载）/ `out`（不自动下载）。`capabilities.rich_files.scope_lane=true` 时**每条必给**。 |
-| `scope_reason` | enum | 否（v1.5） | 仅 `scope_lane=out` 时给，说明为什么不自动下：`policy_off`（私聊 / 小群那一档开关没开）/ `not_allowlisted`（大群不在白名单、也没开周期档）。 |
+| `scope_lane` | enum | 否（v1.5） | **范围档**（§4.5 分类判定的结果，由持有策略的后端算、消费方直接读，**不在两侧各算一遍**）：`realtime`（随增量即时下载）/ `periodic`（按周期批量下载）/ `out`（不自动下载）。**与 `status` 同口径：读时按当前策略与当前 `member_count` 实时算、不缓存**——人改了策略，下一次 `GET` 就反映。`capabilities.rich_files.scope_lane=true` 时**每条必给**。 |
+| `scope_reason` | enum | 否（v1.5） | **`scope_lane=out` 时必给，其余档不得给**。取值：`policy_off`（私聊 / 小群那一档开关没开）/ `not_allowlisted`（成员数已知的大群，不在白名单、也没开周期档）/ `member_count_unknown`（成员数判不出，按大群处理，不在白名单、也没开周期档）/ `type_off`（该件所属类型档后端尚未启用，见 §4.5「类型归属」）。 |
 
 ### 2.1 provenance
 
@@ -77,7 +77,7 @@
 > 本节讲 download 目标选择的总原则「值由人/AMR 定」。**范围订阅策略对象的数据落点**（阈值+白名单存哪）经 §4.5 裁定为 **Route A（住 PD、AMR 前端编辑）**——见 §4.5 与本节末桥接注；两者不冲突（值仍人配，落点搬到 PD）。
 
 - **后端 = 哑字节抓取器**：只 list + 按 `POST download` 下、按 `POST delete-local` 删、按 GET 取；download **执行侧不自决「下谁」**（不越人所设策略）。（范围订阅策略对象在 Route A 下由 PD 持有并据以过滤 `in_scope`，仍不超出人在 AMR 前端所设——见 §4.5。）
-- **策略住 AMR + 人**（宪法「人拿扳手」+「归类归 AMR」）：业务/小群 → AMR 可 `POST download {chat}` 会话级全下（确定性规则）；大群 → 人/规则筛，只下选中的。触发逐消息 / 会话订阅式由 AMR 定。
+- **策略住 AMR + 人**（宪法「人拿扳手」+「归类归 AMR」）：业务/小群 → AMR 可 `POST download {chat}` 会话级全下（确定性规则）；大群 → `large_periodic=false` 时只下人点名进白名单的，`large_periodic=true` 时不在白名单的也按周期批量下（v1.5，§4.5）。触发逐消息 / 会话订阅式由 AMR 定。
   - **「按会话自动下载」本身是人可开关 / 可编辑的 gate，非 AMR 默认全开**（守宪法「不得设计甩手全自动、人被旁路」）——默认关或按人设的白名单会话开，人决定哪些会话值得常态落盘。
 - **被动兜底**：微信桌面「自动下载 ≤N MB」（实测 .28 N=**100**、ON）继续生效——桌面客户端既有行为、非本系统自动决策；调 N **仍须人手拨挡**，非后端自调。
 
@@ -103,13 +103,19 @@
                    "large_periodic": false }
 }
 ```
-> **v1.5 · 大群按周期档（王丁焱 2026-10-09 审定）**：此前大群只有「白名单 → 下 / 不在 → 不下」两态，白名单默认空 = 大群一份都不主动下，与「算料完整」相悖。新增**第三态**：`large_periodic=true` 时，不在白名单的大群文件按**周期批量**下载（不随增量即时下）。**不设文件大小上限**——审定原话：「文件的大小，下载没有上限，只要此通道发送过来，一并接收」。盘增长靠 `local_bytes` 可见（§3 capabilities，`download:true` 时必报）+ 清盘人审（§7）兜住，不靠拒收。§5 的 `too_large` 只表示后端**物理上取不下来**（如磁盘空间不足），不是策略拒收；出现时消费方必须让人看到，不得静默跳过。
-> **周期由消费方定、必须短于 CDN 保留期**（§0 保留窗以天计）：周期档的「每天几次」是 AMR 侧的调度，不入本契约；本契约只规定**哪些件属于周期档**。
-> **向后兼容（PUT 整对象替换的缺省规则）**：v1.5 新增的 `large_periodic` 在 `PUT` 中**缺省 = 保持现值**（不重置为默认）——防止尚未升级、会剥掉未知字段的旧消费方一次 PUT 就把人开好的周期档静默关掉。显式给出的值照常整替换；非布尔值后端拒收（typed error），不得静默改写。
+> **v1.5 · 大群按周期档（王丁焱 2026-10-09 审定）**：此前大群只有「白名单 → 下 / 不在 → 不下」两态，白名单默认空 = 大群一份都不主动下，与「算料完整」相悖。新增**第三态**：`large_periodic=true` 时，不在白名单的大群文件按**周期批量**下载（不随增量即时下）。**不设文件大小上限**——审定原话：「文件的大小，下载没有上限，只要此通道发送过来，一并接收」。盘增长靠 `local_bytes` 可见（§3 capabilities，`download:true` 时必报）+ 清盘人审（§7）兜住，不靠拒收（见 §5「任何码不得用于按文件大小的策略拒收」）。
+> **周期档的提交与收回**：消费方 MUST **按会话逐个**提交周期批次（`POST /api/files/download {chat}`），**每个会话提交前重读策略**；人关掉 `large_periodic` 后，**从下一个会话起**停止提交。已经提交、已经落盘的件不受影响（下载可逆，`delete-local` 可撤）。
+> **周期档的时效义务（可判定、可观测）**：「每天几次」由消费方调度，不入本契约；但每次运行 MUST 覆盖全部 `scope_lane=periodic ∧ status=recoverable` 且 `expire_at` 早于「下次计划运行时刻 + 余量」的件，**没有 `expire_at` 的件按最早到期处理**。消费方 MUST 向人暴露：周期参数（间隔 / 时刻）、上次运行时刻、以及 **`scope_lane=periodic ∧ status=expired` 的件数**（周期档漏掉的，**不得为了指标好看而隐藏**）。
+> **下载不可用时如实呈现**：`capabilities.rich_files.download=false` 或 `POST download` 返回 `active_download_disabled` 时，消费方 MUST 向人展示各档「在册未落盘」件数与最近的 `expire_at`，**不得把 `large_periodic` 开关呈现为「正在归档」**——开了开关、实际一份都下不了，必须让人看得见。
+> **向后兼容（PUT 整对象替换的缺省规则）**：**v1.5 及以后新增的字段（含嵌套在 `documents` / `audio_video` 里的）在 `PUT` 中缺省 = 保持现值**（不重置为默认）——防止尚未升级、会剥掉未知字段的旧消费方一次 PUT 就把人开好的周期档静默关掉。v1.4 既有字段维持 v1.4 语义（整对象替换，缺省 = 出厂默认）；整块 `documents` / `audio_video` 缺失时，块内 v1.4 字段取出厂默认、v1.5 字段保持现值。`GET` 与 `PUT` 的回显 MUST 显式包含 `large_periodic`。值类型不对（如 `large_periodic` 非布尔）→ `invalid_policy`（`retryable:false`，§5），不得静默改写。
+> **消费方侧**：只在 `capabilities.rich_files.scope_lane=true` 时展示与发送 `large_periodic`（v1.4 后端会静默丢弃未知字段并返回 200）；`PUT` 之后 MUST `GET` 读回核对，不一致报给人。
+> **策略变更留痕**：每次 `PUT` 双方 MUST 留痕——谁 / 何时 / 改前 → 改后（含 `large_allow`、`large_periodic`）。
 > **默认 opt-in（守 §4「按会话自动下载 = 人可开关的 gate」条 + 宪法「不得甩手全自动、人被旁路」）**：所有 `auto_*` **出厂默认关**，**人在 AMR 前端显式开启某档才自动归档**——不得在人未配置前静默把每个私聊/小群的文件自动归档。这是自动归档 PII 的安全地基。
 
-**分类判定**（纯函数；v1.5 起结果由后端写进 item 的 `scope_lane`，消费方直接读）：私聊 → `dm_auto && <type>.auto_small` ⇒ `realtime`；群 `n≤max` → `<type>.auto_small` ⇒ `realtime`；群 `n>max` **或成员数未知** → `chat_id ∈ <type>.large_allow` ⇒ `realtime`（人逐个点名的群）；否则 `<type>.large_periodic` ⇒ `periodic`（不论文件大小）；否则 `out`（私聊 / 小群那一档没开 → `policy_off`；大群 → `not_allowlisted`）。**未知按大群**：成员数判不出时**不落即时档**，只能经白名单或周期档在册，不静默把无界大群当小群即时归档。成员数取 `group-metadata` 的 `member_count`。
-> **member_count 是近似值（`group-metadata` 声明 best-effort，`roster:false` 下不精确）**——本判定拿它当小/大群闸，**误分类只会向保守侧降级**（把小群误判成大群 → 需白名单 → 不会静默归档），**绝不向"静默归档无界大群"降级**。故近似可接受。
+**类型归属（v1.5）**：每件先归到一个类型档 `<type>`——`mime` 以 `audio/` 或 `video/` 开头的 → `audio_video`；`mime` 缺失时按扩展名（`mp3 / m4a / amr / silk / wav / mp4 / mov / avi / mkv`）→ `audio_video`；其余一律 → `documents`。**不得用 `documents` 的策略给音视频分类。** 后端尚未启用某类型档时（`audio_video` 当前「下一轮启用」），该类型的件一律 `out` + `type_off`。
+
+**分类判定**（纯函数；v1.5 起结果由后端写进 item 的 `scope_lane`，消费方直接读；读时实时算、不缓存）：私聊 → `dm_auto && <type>.auto_small` ⇒ `realtime`，否则 `out`/`policy_off`；群且成员数已知 `n ≤ small_group_max` → `<type>.auto_small` ⇒ `realtime`，否则 `out`/`policy_off`；群且 `n > small_group_max` **或成员数未知**（`member_count` 缺失或为 0 均视为未知）→ `chat_id ∈ <type>.large_allow` ⇒ `realtime`（人逐个点名的群）；否则 `<type>.large_periodic` ⇒ `periodic`（不论文件大小）；否则 `out`（成员数已知 → `not_allowlisted`，未知 → `member_count_unknown`）。**未知按大群**：成员数判不出时**不落即时档**。成员数取 `group-metadata` 的 `member_count`。群跨过阈值：已落盘的件不受影响，未落盘的件下一次读就按新档算（读时实时算）。
+> **member_count 是近似值（`group-metadata` 声明 best-effort，`roster:false` 下不精确）**——本判定拿它当小/大群闸。误分类的后果分两种情况：**`large_periodic=false`**：小群误判成大群 → 需白名单 → 不会静默归档，只会向保守侧降级；**`large_periodic=true`**：误判成大群的小群、以及成员数未知的群，都会落 `periodic` 并被**周期**归档（而不是即时）——这是人开周期档时已经同意的范围，后果只是**时效变慢**，不会多归档人没同意的东西。两种情况都**绝不会把无界大群当小群即时归档**。故近似可接受。
 
 **端点（Route A · 落 PD）**：`GET /api/files/policy`（前端读，未配过返上述 opt-in 默认）、`PUT /api/files/policy`（前端整对象替换、人在环路写；v1.5 新字段缺省 = 保持现值）、`GET /api/files?in_scope=true`（只返在册件 = `scope_lane ∈ {realtime, periodic}`，省略=全返·向后兼容）、`capabilities.rich_files.policy:bool`（就绪位）、**`capabilities.rich_files.scope_lane:bool`（v1.5 就绪位：每条 item 带 `scope_lane`）**。
 
@@ -119,8 +125,8 @@
 
 - **时效**：按 `expire_at` 升序，快到期先 `POST download`。
 - **`expired` 件**：`GET /api/files` **仍返回**（`status:"expired"`，只元数据 + provenance，无字节），不静默吞（对齐 message §6.4）。
-- **typed error（不裸 500）**：取不回 / 下不动时返回可区分错误码——`expired`（CDN 已删；触发来源现含「GUI-drive 窗外微信自身报文件过期」）/ `cdn_timeout`（窗口内但超时）/ `not_recoverable`（无 cdnurl/key）/ `too_large`（超后端上限）/ `not_local`（GET 未落盘·recoverable）/ **`active_download_disabled`**（`POST download` 主动 GUI 下载在本 build 已禁用·见 §3 主动下载禁用注；`retryable:false`——非瞬时，待安全触发方案就绪后本码语义再议）。结构 `{error:{code, retryable, msg?, chat_id?, msg_id?}}`，对齐 message §6.4 read_unavailable。**`retryable`（bool·后端给·单一真相）**：可否重试由**后端**在 error 里显式标（如 `cdn_timeout`→`true`、`expired`/`not_recoverable`/`active_download_disabled`→`false`），**消费方直接读 `retryable`、不按 code 维护白名单**——以后加可重试码不用改消费方。
-- **分页**：大会话必分页，不一次拉全（对齐「大号慢后端有界」纪律）。
+- **typed error（不裸 500）**：取不回 / 下不动时返回可区分错误码——`expired`（CDN 已删；触发来源现含「GUI-drive 窗外微信自身报文件过期」）/ `cdn_timeout`（窗口内但超时）/ `not_recoverable`（无 cdnurl/key）/ `too_large`（超后端上限）/ **`insufficient_storage`**（v1.5：后端磁盘空间不足、物理上落不了盘；`retryable:true`，`msg` 带所需 / 剩余字节）/ **`invalid_policy`**（v1.5：`PUT /api/files/policy` 的字段类型不对；`retryable:false`）/ `not_local`（GET 未落盘·recoverable）/ **`active_download_disabled`**（`POST download` 主动 GUI 下载在本 build 已禁用·见 §3 主动下载禁用注；`retryable:false`——非瞬时，待安全触发方案就绪后本码语义再议）。结构 `{error:{code, retryable, msg?, chat_id?, msg_id?}}`，对齐 message §6.4 read_unavailable。**`retryable`（bool·后端给·单一真相）**：可否重试由**后端**在 error 里显式标（如 `cdn_timeout`→`true`、`expired`/`not_recoverable`/`active_download_disabled`→`false`），**消费方直接读 `retryable`、不按 code 维护白名单**——以后加可重试码不用改消费方。**v1.5：任何错误码都不得用于「按文件大小的策略拒收」**——大小上限不是策略的一部分（王丁焱 2026-10-09 审定「一并接收」）；`too_large` 只指后端实现上的硬限制，出现时消费方必须让人看到，不得静默跳过。
+- **分页**：大会话必分页，不一次拉全（对齐「大号慢后端有界」纪律）。**带过滤参数（`in_scope` / `status` / `since` 等）时，过滤 MUST 在分页之前做**——否则一页过滤后变空、与「列表到底」分不出，按页枚举的消费方会静默截断。响应 SHOULD 带 `total` 或 `has_more`；消费方**不得凭过滤后的条数判断列表结束**，只能凭 `has_more=false` 或「未过滤的短页」。
 - **降级**：后端无 `rich_files` 或 `download=false` → 消费方退回纯 `GET /api/media`（仅本地）+ message 流 `file`-kind 元数据，功能不缺、只是无主动下载。
 
 ## 6. 与 message/canonical.md 的关系（一把钥匙钉死）
@@ -140,6 +146,8 @@ AMR：ingest 拿到 `kind:"file"` → 需要字节时 `POST download` 预热 →
 - **清盘 HITL**：主动下载会长盘 → 契约要求后端 `download:true` 时**必报** `local_bytes`（人/Agent 看得见增长，非可选）；**删除/清盘必人审，后端绝不自动清**。✅
 - **赋能不替代 · 算料是生产资料**：把易失的微信文档封装进契约（可判状态 + 可达取件 + 可区分错误），让它可流通、可归类、可增值。✅
 - **GUI-drive 越界护栏**：GUI-drive 只在 inbound 取件控件上操作（开会话 / 定位消息 / 触发下载 / 读盘），有越界护栏（见 §3 confinement clause），**绝不触达发送 / 转发 / 合成 / 发布控件**。✅（**注**：本 build 主动 GUI-drive download 已禁用〔§3〕，此护栏对该路径**当前不触发（dormant，护栏条款仍在 §3 保留）**；待主动下载以安全触发方案重启用时**重新生效**。）
+- **范围档与协作配比正交（v1.5）**：`scope_lane`（`realtime` / `periodic` / `out`）是**入站归档的调度分类**，与宪法六档（`off / draft / semi / parallel / audit / auto`）正交，**不得复用为任何出站动作的门控**。✅
+- **主动下载重启的前置条件（v1.5）**：GUI-drive 打开会话会翻转本地 `is_read`；周期档会逐个打开**全部**大群，影响面从白名单群扩大到所有大群——人自己的未读视图、以及消费方依赖未读状态的信号（如 AMR 的待处理计数）都会受影响。主动下载重新启用前，实现方 MUST 写明这一影响与处置（例如取件后恢复 `is_read`，或向消费方标注「此次已读由取件引起」）。
 - **大群周期档（v1.5 · §4.5）**：`large_periodic` **出厂默认关**，人在 AMR 前端显式开 / 关。**不设文件大小上限**（人审定「一并接收」）——盘增长不靠拒收来封顶，而靠**可见**（`local_bytes` 必报）+ **清盘必人审**（后端绝不自动删）。周期档只是**读入**（下载 = 可逆地多存一份，`delete-local` 可撤），不触达任何对外动作。✅
 - **范围策略数据落点（Route A · §4.5）**：策略对象单一真相源住 PD（`GET/PUT /api/files/policy`），**后端不自决订阅谁**（只按人所设策略过滤 `in_scope`）；扳手在人——**策略写 = 人在 AMR 前端整对象替换**（`PUT`，human-in-loop write），非 Agent 自动改；`auto_*` 出厂默认关（opt-in），人未开则不自动归档。✅
 - **主动抓取现状**：本 build 主动 GUI download 已禁（返 `active_download_disabled`）；重启用须人审 + 维持 §3 confinement。当前取件走被动「浏览即下载 → 内容哈希认件 → GET /api/media」，无主动越界面。✅
