@@ -4,6 +4,8 @@
 把 `fixtures/conformance.md` 里**能自动化**的语义口径，变成跑得起来的检查：
 对 `fixtures/message-canonical/*.json` 里每条 canonical 信封做**结构 + 语义**校验，
 任一条不合规 → 非 0 退出 → PR 的 CI 红 → merge 不了。
+另对 `fixtures/presence-parallel/*.json` 按 0 号宪法 v2.1「在场并行」节 I-3 校验生效档判定
+（`evaluate_presence_parallel` 为参考实现）。
 
 这是单账号生态下的**机器闸**：实现/契约示例一旦漂离 canonical 契约（缺必填 / kind 不在
 枚举 / direction 非 in|out / msg_id 空或非字符串 / msg_id 跨 fixtures 撞车），CI 立刻变红，
@@ -142,6 +144,93 @@ def validate_rich_file(obj: object) -> list[str]:
     return viol
 
 
+# 0 号宪法 v2.1「在场并行」节 I-3：生效档判定的参考实现。漂移先改宪法，再改这里。
+RUNGS = ("off", "draft", "semi", "parallel", "audit", "auto")
+PRESENCE_STATES = frozenset({"present", "absent", "unknown"})
+ACTIONS = frozenset({"conversation_send", "broadcast", "destructive_write", "first_contact"})
+PRESENCE_INPUT_FIELDS = ("account_cap", "group_rung", "session_rung", "presence", "policy_enabled",
+                         "in_policy_scope", "anomaly_downgraded", "action")
+
+
+def _rank(rung: str) -> int:
+    return RUNGS.index(rung)
+
+
+def _min_rung(*rungs: str) -> str:
+    return min(rungs, key=_rank)
+
+
+def evaluate_presence_parallel(inp: dict) -> tuple[bool, str]:
+    """返回 (在场并行是否生效, 生效档)。输入须已通过 validate_presence_case 的结构闸。
+
+    在场并行生效 ⇔ 在场 ∧ 策略已开启 ∧ 在作用域 ∧ 会话档 ≥ semi ∧ 本次在场未异常自降。
+    presence == "unknown" 按不在场处理（I-1 fail-closed）。
+    会话项 = 生效 ? max(会话档, parallel) : 会话档
+    生效档 = min(账号封顶档, 授权组档（无组 → 账号封顶档）, 会话项, 该动作的封顶档)
+    会话内 send 封顶 = 生效 ? parallel : semi；其余三类动作封顶 semi（封顶表）。
+    异常自降：收缩到 draft（不变式 4）。
+    """
+    present = inp["presence"] == "present"
+    active = (present and inp["policy_enabled"] is True and inp["in_policy_scope"] is True
+              and _rank(inp["session_rung"]) >= _rank("semi") and inp["anomaly_downgraded"] is False)
+    session_term = (RUNGS[max(_rank(inp["session_rung"]), _rank("parallel"))]
+                    if active else inp["session_rung"])
+    group = inp["group_rung"] if inp["group_rung"] is not None else inp["account_cap"]
+    action_cap = "parallel" if (inp["action"] == "conversation_send" and active) else "semi"
+    rung = _min_rung(inp["account_cap"], group, session_term, action_cap)
+    if inp["anomaly_downgraded"] is True:
+        rung = _min_rung(rung, "draft")
+    return active, rung
+
+
+def validate_presence_case(obj: object) -> list[str]:
+    """对单条在场并行 fixture 返回违规列表（[] = 合规）。纯函数，永不抛。
+
+    结构闸（字段在、值落枚举）+ 语义闸（expected 必须等于参考实现的判定）。
+    """
+    if not isinstance(obj, dict):
+        return [f"presence case is not an object (got {type(obj).__name__})"]
+    viol: list[str] = []
+    if not (isinstance(obj.get("case"), str) and obj.get("case")):
+        viol.append("case must be a non-empty string")
+    inp, exp = obj.get("input"), obj.get("expected")
+    if not isinstance(inp, dict):
+        return viol + ["input must be an object"]
+    if not isinstance(exp, dict):
+        return viol + ["expected must be an object"]
+    for fld in PRESENCE_INPUT_FIELDS:
+        if fld not in inp:
+            viol.append(f"input missing field: {fld}")
+    if viol:
+        return viol
+    for fld in ("account_cap", "session_rung"):
+        if inp[fld] not in RUNGS:
+            viol.append(f"input.{fld} {inp[fld]!r} not in ladder {RUNGS}")
+    if inp["group_rung"] is not None and inp["group_rung"] not in RUNGS:
+        viol.append(f"input.group_rung {inp['group_rung']!r} not in ladder (or null)")
+    if inp["presence"] not in PRESENCE_STATES:
+        viol.append(f"input.presence {inp['presence']!r} not in {sorted(PRESENCE_STATES)}")
+    if inp["action"] not in ACTIONS:
+        viol.append(f"input.action {inp['action']!r} not in {sorted(ACTIONS)}")
+    for fld in ("policy_enabled", "in_policy_scope", "anomaly_downgraded"):
+        if not isinstance(inp[fld], bool):
+            viol.append(f"input.{fld} must be a bool")
+    if exp.get("effective_rung") not in RUNGS:
+        viol.append(f"expected.effective_rung {exp.get('effective_rung')!r} not in ladder")
+    if not isinstance(exp.get("presence_parallel_active"), bool):
+        viol.append("expected.presence_parallel_active must be a bool")
+    if viol:
+        return viol
+    active, rung = evaluate_presence_parallel(inp)
+    if active != exp["presence_parallel_active"]:
+        viol.append(f"presence_parallel_active: expected {exp['presence_parallel_active']}, "
+                    f"rule gives {active} (0 号宪法 在场并行 I-3)")
+    if rung != exp["effective_rung"]:
+        viol.append(f"effective_rung: expected {exp['effective_rung']!r}, rule gives {rung!r} "
+                    f"(0 号宪法 在场并行 I-3 + 封顶表)")
+    return viol
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
     fixtures_dir = root / "fixtures" / "message-canonical"
@@ -223,12 +312,39 @@ def main(argv: list[str]) -> int:
         if not viol:
             print(f"  [ok]   {f.name} (rich-file)")
 
+    # 0 号宪法 v2.1「在场并行」：生效档判定（另一套校验，单独目录）。
+    presence_dir = root / "fixtures" / "presence-parallel"
+    presence_files = sorted(presence_dir.glob("*.json"))
+    seen_cases: dict[str, str] = {}
+    for f in presence_files:
+        try:
+            obj = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  [FAIL] {f.name}: cannot parse JSON: {e}", file=sys.stderr)
+            total_viol += 1
+            continue
+        viol = validate_presence_case(obj)
+        for v in viol:
+            print(f"  [FAIL] {f.name}: {v}", file=sys.stderr)
+        total_viol += len(viol)
+        case = obj.get("case") if isinstance(obj, dict) else None
+        if isinstance(case, str) and case:
+            if case in seen_cases:
+                print(f"  [FAIL] {f.name}: case {case!r} collides with {seen_cases[case]}", file=sys.stderr)
+                total_viol += 1
+            else:
+                seen_cases[case] = f.name
+        if not viol:
+            print(f"  [ok]   {f.name} (presence-parallel)")
+
     print(f"\nconformance: {len(files)} envelope + {len(read_files)} read-signal "
-          f"+ {len(rich_files)} rich-file fixtures, {total_viol} violation(s)")
+          f"+ {len(rich_files)} rich-file + {len(presence_files)} presence-parallel fixtures, "
+          f"{total_viol} violation(s)")
     if total_viol:
         print("conformance: RED — fixtures drifted from contract", file=sys.stderr)
         return 1
-    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive")
+    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive "
+          "+ constitution presence-parallel")
     return 0
 
 

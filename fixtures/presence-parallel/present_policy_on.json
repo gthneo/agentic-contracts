@@ -1,0 +1,19 @@
+{
+  "case": "present_policy_on",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
+  "description": "人点进会话且在场 + 策略开启 + 在作用域 + 会话档 semi → 会话项抬到 parallel，封顶 parallel",
+  "input": {
+    "account_cap": "parallel",
+    "group_rung": null,
+    "session_rung": "semi",
+    "presence": "present",
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "anomaly_downgraded": false,
+    "action": "conversation_send"
+  },
+  "expected": {
+    "presence_parallel_active": true,
+    "effective_rung": "parallel"
+  }
+}

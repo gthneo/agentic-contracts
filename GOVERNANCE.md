@@ -58,6 +58,10 @@ Claude Code 账号（`gthneo`）下**。没有「另一个人来审你」这种�
    协作档是否仍**人手拨、系统不自升**，且**异常必自降到 `draft`**？不可逆动作（广播 / 删除 /
    建立关系）是否守住**封顶 `semi`**？结果是否**回交给人看**（粒度可随档变，但不得为零）？
    是否**另造了一套档位词汇**（宪法六档之外自立门户 = 隐蔽漂移）？
+   **凡会话内 send 到了 `parallel`**（0 号宪法 v2.1「在场并行」节）：是否**只在在场期间**、策略是否
+   **人显式开启且一键可关**、在场是否由**人的正向动作开始、人的持续交互维持**（页面存活的定时上报不算）、
+   **判不出是否按不在场**、**离场是否即回 `semi`**（含已交出未执行的派发任务撤下）、是否仍过**全部闸**？
+   任何一处把人的沉默 / 不作为读成在场或授权，即判系统自升。
 2. **有没有偷改语义**——有没有在不动 schema 的情况下，悄悄改了某字段的**语义口径**
    （如 `msg_id` 唯一性 / `direction` 判定 / `kind` 枚举）？这种漂移 schema 抓不住，必须人/agent 核。
 3. **有没有过 conformance**——`scripts/conformance.py` 是否绿？fixtures 是否仍自洽？
@@ -80,6 +84,8 @@ PR 必须过 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)，红就 mer
   `fixtures/message-canonical/*.json` 每条都符合 canonical 契约（必填字段 / `kind` 落 15 值枚举 /
   `direction` ∈ {in,out} / `schema` 前缀 / `msg_id` 若存在则非空字符串），且 fixtures 之间
   **`msg_id` 全局唯一**（自洽）。这把 `fixtures/conformance.md` 里能自动化的口径变成跑得起来的检查。
+  另对 `fixtures/presence-parallel/*.json` 按 0 号宪法 v2.1「在场并行」节 I-3 的参考实现校验
+  `生效档` 判定（宪法条款里可机器判定的部分）。
 - **(c) compat-gate**——占位的兼容闸（按 `VERSIONING.md`：major 须**另开新文件 + bump**）。
   现在先留住这道 step，逻辑后续接。
 

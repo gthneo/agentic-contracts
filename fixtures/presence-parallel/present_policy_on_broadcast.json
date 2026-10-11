@@ -1,0 +1,19 @@
+{
+  "case": "present_policy_on_broadcast",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
+  "description": "在场并行只作用于会话内 send：广播仍封顶 semi",
+  "input": {
+    "account_cap": "parallel",
+    "group_rung": null,
+    "session_rung": "semi",
+    "presence": "present",
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "anomaly_downgraded": false,
+    "action": "broadcast"
+  },
+  "expected": {
+    "presence_parallel_active": true,
+    "effective_rung": "semi"
+  }
+}

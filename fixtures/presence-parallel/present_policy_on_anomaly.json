@@ -1,0 +1,19 @@
+{
+  "case": "present_policy_on_anomaly",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
+  "description": "本次在场内已触发异常自降：不生效，且收缩到 draft",
+  "input": {
+    "account_cap": "parallel",
+    "group_rung": null,
+    "session_rung": "semi",
+    "presence": "present",
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "anomaly_downgraded": true,
+    "action": "conversation_send"
+  },
+  "expected": {
+    "presence_parallel_active": false,
+    "effective_rung": "draft"
+  }
+}

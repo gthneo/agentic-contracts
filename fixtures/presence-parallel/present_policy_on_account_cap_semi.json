@@ -1,0 +1,19 @@
+{
+  "case": "present_policy_on_account_cap_semi",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
+  "description": "账号封顶档 semi 压顶：在场并行只抬会话项，不越过账号层上限",
+  "input": {
+    "account_cap": "semi",
+    "group_rung": null,
+    "session_rung": "semi",
+    "presence": "present",
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "anomaly_downgraded": false,
+    "action": "conversation_send"
+  },
+  "expected": {
+    "presence_parallel_active": true,
+    "effective_rung": "semi"
+  }
+}

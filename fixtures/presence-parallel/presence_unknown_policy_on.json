@@ -1,0 +1,19 @@
+{
+  "case": "presence_unknown_policy_on",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
+  "description": "在场判不出（fail-closed）= 不在场 → semi",
+  "input": {
+    "account_cap": "parallel",
+    "group_rung": null,
+    "session_rung": "semi",
+    "presence": "unknown",
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "anomaly_downgraded": false,
+    "action": "conversation_send"
+  },
+  "expected": {
+    "presence_parallel_active": false,
+    "effective_rung": "semi"
+  }
+}
