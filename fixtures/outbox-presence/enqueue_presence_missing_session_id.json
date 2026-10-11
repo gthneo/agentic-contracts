@@ -1,0 +1,25 @@
+{
+  "case": "enqueue_presence_missing_session_id",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "形态 B 缺在场会话 id（审计关联不上）",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "send_text",
+      "authorization": "presence_parallel",
+      "presence_ttl_secs": 300
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 400,
+    "code": "MISSING_PRESENCE_SESSION"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "case": "handover_via_sync_endpoint",
+  "check": "handover",
+  "rule": "outbox/dispatch.md v1.1 §0 / §7.1 + control-and-voice.md §8.1 PP-2…PP-5",
+  "description": "走同步端点而非 outbox（PP-2b 不满足）",
+  "input": {
+    "outbox_caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "control_caps": {
+      "state": true,
+      "push": true,
+      "authored_by": true
+    },
+    "control_state": "agent",
+    "constitution_item_parallel": true,
+    "via_outbox": false
+  },
+  "expected": {
+    "form": "semi"
+  }
+}

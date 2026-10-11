@@ -1,0 +1,25 @@
+{
+  "case": "enqueue_presence_ttl_missing",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "形态 B 缺有效期",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "send_text",
+      "authorization": "presence_parallel",
+      "presence_session_id": "ps_test_0001"
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 400,
+    "code": "BAD_PRESENCE_TTL"
+  }
+}

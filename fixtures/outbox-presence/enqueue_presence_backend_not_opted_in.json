@@ -1,0 +1,25 @@
+{
+  "case": "enqueue_presence_backend_not_opted_in",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "后端未声明 presence_parallel → 拒绝（不当普通任务执行）",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true
+    },
+    "request": {
+      "kind": "send_text",
+      "authorization": "presence_parallel",
+      "presence_session_id": "ps_test_0001",
+      "presence_ttl_secs": 300
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 409,
+    "code": "PRESENCE_PARALLEL_UNSUPPORTED"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "case": "claim_presence_human_takeover",
+  "check": "claim",
+  "rule": "outbox/dispatch.md v1.1 §3 + control-and-voice.md §8.1 PP-4",
+  "description": "形态 B，渠道接管 → 后端立即撤（HUMAN_TAKEOVER）",
+  "input": {
+    "authorization": "presence_parallel",
+    "control_state": "human",
+    "secs_since_accept": 30,
+    "presence_ttl_secs": 300,
+    "paused": false
+  },
+  "expected": {
+    "action": "cancel"
+  }
+}

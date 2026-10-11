@@ -1,0 +1,26 @@
+{
+  "case": "enqueue_presence_comment_moment",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "形态 B 只允许 send_text（会话内发消息）",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "comment_moment",
+      "authorization": "presence_parallel",
+      "presence_session_id": "ps_test_0001",
+      "presence_ttl_secs": 300
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 400,
+    "code": "PRESENCE_KIND_NOT_ALLOWED"
+  }
+}

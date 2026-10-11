@@ -1,0 +1,25 @@
+{
+  "case": "handover_control_state_unknown",
+  "check": "handover",
+  "rule": "outbox/dispatch.md v1.1 §0 / §7.1 + control-and-voice.md §8.1 PP-2…PP-5",
+  "description": "拉不到 control_state → 按 HUMAN 处理",
+  "input": {
+    "outbox_caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "control_caps": {
+      "state": true,
+      "push": true,
+      "authored_by": true
+    },
+    "control_state": "unknown",
+    "constitution_item_parallel": true,
+    "via_outbox": true
+  },
+  "expected": {
+    "form": "semi"
+  }
+}

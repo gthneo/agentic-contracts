@@ -1,0 +1,23 @@
+{
+  "case": "enqueue_human_confirmed_during_human",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "形态 A 在 HUMAN 态照常受理（挂起到人走，rev3 行为）",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "send_text"
+    },
+    "control_state": "human",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 202,
+    "code": null
+  }
+}

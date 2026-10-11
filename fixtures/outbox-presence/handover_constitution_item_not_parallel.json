@@ -1,0 +1,25 @@
+{
+  "case": "handover_constitution_item_not_parallel",
+  "check": "handover",
+  "rule": "outbox/dispatch.md v1.1 §0 / §7.1 + control-and-voice.md §8.1 PP-2…PP-5",
+  "description": "宪法 I-3 判该条不可按 parallel 交出（如稿早于在场开始）",
+  "input": {
+    "outbox_caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "control_caps": {
+      "state": true,
+      "push": true,
+      "authored_by": true
+    },
+    "control_state": "agent",
+    "constitution_item_parallel": false,
+    "via_outbox": true
+  },
+  "expected": {
+    "form": "semi"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "case": "enqueue_human_confirmed_explicit",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "显式 human_confirmed = 形态 A",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "comment_moment",
+      "authorization": "human_confirmed"
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 202,
+    "code": null
+  }
+}

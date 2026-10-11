@@ -1,0 +1,16 @@
+{
+  "case": "claim_human_confirmed_agent",
+  "check": "claim",
+  "rule": "outbox/dispatch.md v1.1 §3 + control-and-voice.md §8.1 PP-4",
+  "description": "形态 A，AGENT 态 → 执行；无有效期",
+  "input": {
+    "authorization": "human_confirmed",
+    "control_state": "agent",
+    "secs_since_accept": 99999,
+    "presence_ttl_secs": 0,
+    "paused": false
+  },
+  "expected": {
+    "action": "run"
+  }
+}

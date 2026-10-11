@@ -1,0 +1,16 @@
+{
+  "case": "claim_human_confirmed_human",
+  "check": "claim",
+  "rule": "outbox/dispatch.md v1.1 §3 + control-and-voice.md §8.1 PP-4",
+  "description": "形态 A，HUMAN 态 → 挂起（rev3 行为不变）",
+  "input": {
+    "authorization": "human_confirmed",
+    "control_state": "human",
+    "secs_since_accept": 30,
+    "presence_ttl_secs": 0,
+    "paused": false
+  },
+  "expected": {
+    "action": "hold"
+  }
+}

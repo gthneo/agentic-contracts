@@ -1,0 +1,25 @@
+{
+  "case": "enqueue_human_confirmed_with_presence_fields",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "形态 A 却带在场字段：半填 fail-closed",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "send_text",
+      "authorization": "human_confirmed",
+      "presence_session_id": "ps_test_0002"
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 400,
+    "code": "PRESENCE_FIELDS_WITHOUT_AUTHORIZATION"
+  }
+}
