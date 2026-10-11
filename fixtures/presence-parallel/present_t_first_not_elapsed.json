@@ -19,8 +19,10 @@
     "item": {
       "action": "conversation_send",
       "draft_predates_presence": false,
+      "trigger_predates_presence": false,
       "indicator_rendered": true,
       "t_first_elapsed": false,
+      "within_rate_cap": true,
       "run_after_within_window": true
     }
   },

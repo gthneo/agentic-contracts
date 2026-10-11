@@ -156,8 +156,11 @@ PRESENCE_BOOL_FIELDS = ("policy_enabled", "in_policy_scope", "is_large_group", "
                         "sticky_exit", "anomaly_downgraded", "handles_ready", "backend_cancel")
 PRESENCE_INPUT_FIELDS = ("account_cap", "group_rungs", "session_rung", "presence", "n_minutes",
                          *PRESENCE_BOOL_FIELDS, "item")
-ITEM_BOOL_FIELDS = ("draft_predates_presence", "indicator_rendered", "t_first_elapsed",
-                    "run_after_within_window")
+ITEM_BOOL_FIELDS = ("draft_predates_presence", "trigger_predates_presence", "indicator_rendered",
+                    "t_first_elapsed", "within_rate_cap", "run_after_within_window")
+# 离场期间到达的消息、在场开始后重新生成的回复（宪法「在场并行」I-3，待班迪审定）：
+#   "B" = 可按 parallel 交出（受 T_first 与频次上限约束）；"A" = 一律按 semi 逐条放行。
+N4_POLICY = "B"
 
 
 def _rank(rung: str) -> int:
@@ -176,7 +179,10 @@ def evaluate_presence_parallel(inp: dict) -> tuple[bool, str]:
                  ∧ 会话档 ≥ semi ∧ 无未恢复的 sticky 结束（读不到 = 视为有）∧ 本次在场未异常自降
                  ∧ I-6 手柄齐（含频次上限不宽于 R_max）∧ 后端已声明 cancel
     单条可按 parallel 交出 ⇔ 生效 ∧ 会话内发消息 ∧ 稿在本次在场开始之后才拟出
-                 ∧ 标识已呈现 ∧ 距在场开始已过 T_first ∧ 放出时刻回告存在且不晚于 交出时刻 + W
+                 ∧ 标识已呈现 ∧ 距在场开始已过 T_first ∧ 本条不超出频次上限
+                 ∧ 放出时刻回告存在且不晚于 交出时刻 + W
+                 ∧ （口径 A 时）触发消息不早于在场开始
+                 ∧ 以上单条项读得到（任一 item 字段为 null = 该条按 semi）
     会话项 = 生效 ? max(会话档, parallel) : 会话档
     生效档 = min(账号封顶档, 各授权组档（无组 → 账号封顶档）, 会话项, 该条的封顶档)
     该条的封顶档 = 单条可按 parallel 交出 ? parallel : semi
@@ -192,9 +198,12 @@ def evaluate_presence_parallel(inp: dict) -> tuple[bool, str]:
               and _rank(inp["session_rung"]) >= _rank("semi")
               and no_sticky and not inp["anomaly_downgraded"]
               and inp["handles_ready"] and inp["backend_cancel"])
-    item_parallel = (active and item["action"] == "conversation_send"
-                     and not item["draft_predates_presence"] and item["indicator_rendered"]
-                     and item["t_first_elapsed"] and item["run_after_within_window"])
+    item_readable = all(item[f] is not None for f in ITEM_BOOL_FIELDS)
+    item_parallel = (active and item_readable and item["action"] == "conversation_send"
+                     and item["draft_predates_presence"] is False
+                     and item["indicator_rendered"] is True and item["t_first_elapsed"] is True
+                     and item["within_rate_cap"] is True and item["run_after_within_window"] is True
+                     and (N4_POLICY == "B" or item["trigger_predates_presence"] is False))
     session_term = (RUNGS[max(_rank(inp["session_rung"]), _rank("parallel"))]
                     if active else inp["session_rung"])
     groups = inp["group_rungs"] or [inp["account_cap"]]
@@ -247,8 +256,10 @@ def validate_presence_case(obj: object) -> list[str]:
         if item.get("action") not in ACTIONS:
             viol.append(f"input.item.action {item.get('action')!r} not in {sorted(ACTIONS)}")
         for fld in ITEM_BOOL_FIELDS:
-            if not isinstance(item.get(fld), bool):
-                viol.append(f"input.item.{fld} must be a bool")
+            if fld not in item:
+                viol.append(f"input.item missing field: {fld}")
+            elif not (item[fld] is None or isinstance(item[fld], bool)):
+                viol.append(f"input.item.{fld} must be a bool or null (null = 读不到)")
     if exp.get("effective_rung") not in RUNGS:
         viol.append(f"expected.effective_rung {exp.get('effective_rung')!r} not in ladder")
     if not isinstance(exp.get("presence_parallel_active"), bool):

@@ -1,7 +1,7 @@
 {
   "case": "present_reply_to_message_arrived_while_away",
   "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-2 / I-3 / I-6 + 封顶表",
-  "description": "离场期间到达的消息、在场开始后重新生成的回复（口径 B，待班迪审定）→ parallel",
+  "description": "离场期间到达的消息、在场开始后重新生成的回复：口径 B（现行，待班迪审定）→ parallel；若改口径 A，期望值改为 semi",
   "input": {
     "account_cap": "parallel",
     "group_rungs": [],
@@ -19,8 +19,10 @@
     "item": {
       "action": "conversation_send",
       "draft_predates_presence": false,
+      "trigger_predates_presence": true,
       "indicator_rendered": true,
       "t_first_elapsed": true,
+      "within_rate_cap": true,
       "run_after_within_window": true
     }
   },
