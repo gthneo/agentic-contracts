@@ -20,6 +20,7 @@
       "action": "conversation_send",
       "draft_predates_presence": false,
       "indicator_rendered": true,
+      "t_first_elapsed": true,
       "run_after_within_window": false
     }
   },

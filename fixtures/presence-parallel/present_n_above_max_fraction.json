@@ -1,0 +1,31 @@
+{
+  "case": "present_n_above_max_fraction",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-2 / I-3 / I-6 + 封顶表",
+  "description": "N = 10.5 超过 N_max → 不生效（不得截成整数）",
+  "input": {
+    "account_cap": "parallel",
+    "group_rungs": [],
+    "session_rung": "semi",
+    "presence": "present",
+    "n_minutes": 10.5,
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "is_large_group": false,
+    "explicitly_listed": false,
+    "sticky_exit": false,
+    "anomaly_downgraded": false,
+    "handles_ready": true,
+    "backend_cancel": true,
+    "item": {
+      "action": "conversation_send",
+      "draft_predates_presence": false,
+      "indicator_rendered": true,
+      "t_first_elapsed": true,
+      "run_after_within_window": true
+    }
+  },
+  "expected": {
+    "presence_parallel_active": false,
+    "effective_rung": "semi"
+  }
+}

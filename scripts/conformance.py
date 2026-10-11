@@ -148,12 +148,16 @@ def validate_rich_file(obj: object) -> list[str]:
 RUNGS = ("off", "draft", "semi", "parallel", "audit", "auto")
 PRESENCE_STATES = frozenset({"present", "absent", "unknown"})
 ACTIONS = frozenset({"conversation_send", "broadcast", "destructive_write", "first_contact"})
-N_MAX_MINUTES = 10  # 0 号宪法「在场并行」I-1 的 N_max（待人审定的数值，改宪法时同步改这里）
+N_MAX_MINUTES = 10  # 0 号宪法「在场并行」宪法参数 N_max（2026-10-11 已审定；改宪法时同步改这里）
+# 读不到 / 不可信的状态在 fixture 里写成 null（I-1 fail-closed）：sticky / 作用域读不到 = 不生效，
+# 群成员数判不出 = 按超过 G 处理，N 读不到 = 配置不合法。
+NULLABLE_BOOL_FIELDS = frozenset({"in_policy_scope", "is_large_group", "sticky_exit"})
 PRESENCE_BOOL_FIELDS = ("policy_enabled", "in_policy_scope", "is_large_group", "explicitly_listed",
                         "sticky_exit", "anomaly_downgraded", "handles_ready", "backend_cancel")
 PRESENCE_INPUT_FIELDS = ("account_cap", "group_rungs", "session_rung", "presence", "n_minutes",
                          *PRESENCE_BOOL_FIELDS, "item")
-ITEM_BOOL_FIELDS = ("draft_predates_presence", "indicator_rendered", "run_after_within_window")
+ITEM_BOOL_FIELDS = ("draft_predates_presence", "indicator_rendered", "t_first_elapsed",
+                    "run_after_within_window")
 
 
 def _rank(rung: str) -> int:
@@ -167,11 +171,12 @@ def _min_rung(*rungs: str) -> str:
 def evaluate_presence_parallel(inp: dict) -> tuple[bool, str]:
     """返回 (在场并行是否生效, 该条的生效档)。输入须已通过 validate_presence_case 的结构闸。
 
-    在场并行生效 ⇔ 在场（unknown 按不在场，I-1 fail-closed）∧ 0 < N ≤ N_max
-                 ∧ 策略已开启 ∧ 在作用域（大群须显式列入）∧ 会话档 ≥ semi
-                 ∧ 无未恢复的 sticky 结束 ∧ 本次在场未异常自降 ∧ I-6 手柄齐 ∧ 后端已声明 cancel
+    在场并行生效 ⇔ 在场（unknown 按不在场，I-1 fail-closed）∧ 0 < N ≤ N_max（N 读不到 = 不合法）
+                 ∧ 策略已开启 ∧ 在作用域（读不到 = 不在；超过 G 人的群须显式列入，成员数判不出按超过）
+                 ∧ 会话档 ≥ semi ∧ 无未恢复的 sticky 结束（读不到 = 视为有）∧ 本次在场未异常自降
+                 ∧ I-6 手柄齐（含频次上限不宽于 R_max）∧ 后端已声明 cancel
     单条可按 parallel 交出 ⇔ 生效 ∧ 会话内发消息 ∧ 稿在本次在场开始之后才拟出
-                 ∧ 标识已呈现 ∧ 预计放出时刻不晚于 交出时刻 + W
+                 ∧ 标识已呈现 ∧ 距在场开始已过 T_first ∧ 放出时刻回告存在且不晚于 交出时刻 + W
     会话项 = 生效 ? max(会话档, parallel) : 会话档
     生效档 = min(账号封顶档, 各授权组档（无组 → 账号封顶档）, 会话项, 该条的封顶档)
     该条的封顶档 = 单条可按 parallel 交出 ? parallel : semi
@@ -179,15 +184,17 @@ def evaluate_presence_parallel(inp: dict) -> tuple[bool, str]:
     """
     item = inp["item"]
     n = inp["n_minutes"]
-    n_ok = 0 < n <= N_MAX_MINUTES
-    scope_ok = inp["in_policy_scope"] and (not inp["is_large_group"] or inp["explicitly_listed"])
+    n_ok = n is not None and 0 < n <= N_MAX_MINUTES
+    large = inp["is_large_group"] is not False  # None（判不出）按超过 G 处理
+    scope_ok = inp["in_policy_scope"] is True and (not large or inp["explicitly_listed"])
+    no_sticky = inp["sticky_exit"] is False  # None（读不到）视为有 sticky
     active = (inp["presence"] == "present" and n_ok and inp["policy_enabled"] and scope_ok
               and _rank(inp["session_rung"]) >= _rank("semi")
-              and not inp["sticky_exit"] and not inp["anomaly_downgraded"]
+              and no_sticky and not inp["anomaly_downgraded"]
               and inp["handles_ready"] and inp["backend_cancel"])
     item_parallel = (active and item["action"] == "conversation_send"
                      and not item["draft_predates_presence"] and item["indicator_rendered"]
-                     and item["run_after_within_window"])
+                     and item["t_first_elapsed"] and item["run_after_within_window"])
     session_term = (RUNGS[max(_rank(inp["session_rung"]), _rank("parallel"))]
                     if active else inp["session_rung"])
     groups = inp["group_rungs"] or [inp["account_cap"]]
@@ -227,11 +234,12 @@ def validate_presence_case(obj: object) -> list[str]:
     if inp["presence"] not in PRESENCE_STATES:
         viol.append(f"input.presence {inp['presence']!r} not in {sorted(PRESENCE_STATES)}")
     n = inp["n_minutes"]
-    if isinstance(n, bool) or not isinstance(n, (int, float)):
-        viol.append(f"input.n_minutes {n!r} must be a number")
+    if n is not None and (isinstance(n, bool) or not isinstance(n, (int, float))):
+        viol.append(f"input.n_minutes {n!r} must be a number or null (null = 读不到)")
     for fld in PRESENCE_BOOL_FIELDS:
-        if not isinstance(inp[fld], bool):
-            viol.append(f"input.{fld} must be a bool")
+        v = inp[fld]
+        if not (isinstance(v, bool) or (v is None and fld in NULLABLE_BOOL_FIELDS)):
+            viol.append(f"input.{fld} must be a bool" + (" or null" if fld in NULLABLE_BOOL_FIELDS else ""))
     item = inp["item"]
     if not isinstance(item, dict):
         viol.append("input.item must be an object")

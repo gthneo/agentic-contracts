@@ -1,0 +1,33 @@
+{
+  "case": "present_account_cap_draft_group_parallel",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-2 / I-3 / I-6 + 封顶表",
+  "description": "账号封顶档 draft 压顶（授权组非空也不改变）",
+  "input": {
+    "account_cap": "draft",
+    "group_rungs": [
+      "parallel"
+    ],
+    "session_rung": "semi",
+    "presence": "present",
+    "n_minutes": 10,
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "is_large_group": false,
+    "explicitly_listed": false,
+    "sticky_exit": false,
+    "anomaly_downgraded": false,
+    "handles_ready": true,
+    "backend_cancel": true,
+    "item": {
+      "action": "conversation_send",
+      "draft_predates_presence": false,
+      "indicator_rendered": true,
+      "t_first_elapsed": true,
+      "run_after_within_window": true
+    }
+  },
+  "expected": {
+    "presence_parallel_active": true,
+    "effective_rung": "draft"
+  }
+}
