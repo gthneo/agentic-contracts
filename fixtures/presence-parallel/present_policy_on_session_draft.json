@@ -1,16 +1,27 @@
 {
   "case": "present_policy_on_session_draft",
-  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
-  "description": "人有意把该会话设为 draft：在场并行不生效，不被在场抬高",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-2 / I-3 / I-6 + 封顶表",
+  "description": "人有意设低（draft）的会话不被在场抬高",
   "input": {
     "account_cap": "parallel",
-    "group_rung": null,
+    "group_rungs": [],
     "session_rung": "draft",
     "presence": "present",
+    "n_minutes": 10,
     "policy_enabled": true,
     "in_policy_scope": true,
+    "is_large_group": false,
+    "explicitly_listed": false,
+    "sticky_exit": false,
     "anomaly_downgraded": false,
-    "action": "conversation_send"
+    "handles_ready": true,
+    "backend_cancel": true,
+    "item": {
+      "action": "conversation_send",
+      "draft_predates_presence": false,
+      "indicator_rendered": true,
+      "run_after_within_window": true
+    }
   },
   "expected": {
     "presence_parallel_active": false,

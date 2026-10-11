@@ -1,16 +1,27 @@
 {
   "case": "presence_unknown_policy_on",
-  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-2 / I-3 / I-6 + 封顶表",
   "description": "在场判不出（fail-closed）= 不在场 → semi",
   "input": {
     "account_cap": "parallel",
-    "group_rung": null,
+    "group_rungs": [],
     "session_rung": "semi",
     "presence": "unknown",
+    "n_minutes": 10,
     "policy_enabled": true,
     "in_policy_scope": true,
+    "is_large_group": false,
+    "explicitly_listed": false,
+    "sticky_exit": false,
     "anomaly_downgraded": false,
-    "action": "conversation_send"
+    "handles_ready": true,
+    "backend_cancel": true,
+    "item": {
+      "action": "conversation_send",
+      "draft_predates_presence": false,
+      "indicator_rendered": true,
+      "run_after_within_window": true
+    }
   },
   "expected": {
     "presence_parallel_active": false,

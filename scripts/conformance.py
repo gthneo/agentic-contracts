@@ -144,12 +144,16 @@ def validate_rich_file(obj: object) -> list[str]:
     return viol
 
 
-# 0 号宪法 v2.1「在场并行」节 I-3：生效档判定的参考实现。漂移先改宪法，再改这里。
+# 0 号宪法 v2.1「在场并行」节 I-1 / I-2 / I-3 / I-6：生效档判定的参考实现。漂移先改宪法，再改这里。
 RUNGS = ("off", "draft", "semi", "parallel", "audit", "auto")
 PRESENCE_STATES = frozenset({"present", "absent", "unknown"})
 ACTIONS = frozenset({"conversation_send", "broadcast", "destructive_write", "first_contact"})
-PRESENCE_INPUT_FIELDS = ("account_cap", "group_rung", "session_rung", "presence", "policy_enabled",
-                         "in_policy_scope", "anomaly_downgraded", "action")
+N_MAX_MINUTES = 10  # 0 号宪法「在场并行」I-1 的 N_max（待人审定的数值，改宪法时同步改这里）
+PRESENCE_BOOL_FIELDS = ("policy_enabled", "in_policy_scope", "is_large_group", "explicitly_listed",
+                        "sticky_exit", "anomaly_downgraded", "handles_ready", "backend_cancel")
+PRESENCE_INPUT_FIELDS = ("account_cap", "group_rungs", "session_rung", "presence", "n_minutes",
+                         *PRESENCE_BOOL_FIELDS, "item")
+ITEM_BOOL_FIELDS = ("draft_predates_presence", "indicator_rendered", "run_after_within_window")
 
 
 def _rank(rung: str) -> int:
@@ -161,24 +165,35 @@ def _min_rung(*rungs: str) -> str:
 
 
 def evaluate_presence_parallel(inp: dict) -> tuple[bool, str]:
-    """返回 (在场并行是否生效, 生效档)。输入须已通过 validate_presence_case 的结构闸。
+    """返回 (在场并行是否生效, 该条的生效档)。输入须已通过 validate_presence_case 的结构闸。
 
-    在场并行生效 ⇔ 在场 ∧ 策略已开启 ∧ 在作用域 ∧ 会话档 ≥ semi ∧ 本次在场未异常自降。
-    presence == "unknown" 按不在场处理（I-1 fail-closed）。
+    在场并行生效 ⇔ 在场（unknown 按不在场，I-1 fail-closed）∧ 0 < N ≤ N_max
+                 ∧ 策略已开启 ∧ 在作用域（大群须显式列入）∧ 会话档 ≥ semi
+                 ∧ 无未恢复的 sticky 结束 ∧ 本次在场未异常自降 ∧ I-6 手柄齐 ∧ 后端已声明 cancel
+    单条可按 parallel 交出 ⇔ 生效 ∧ 会话内发消息 ∧ 稿在本次在场开始之后才拟出
+                 ∧ 标识已呈现 ∧ 预计放出时刻不晚于 交出时刻 + W
     会话项 = 生效 ? max(会话档, parallel) : 会话档
-    生效档 = min(账号封顶档, 授权组档（无组 → 账号封顶档）, 会话项, 该动作的封顶档)
-    会话内 send 封顶 = 生效 ? parallel : semi；其余三类动作封顶 semi（封顶表）。
+    生效档 = min(账号封顶档, 各授权组档（无组 → 账号封顶档）, 会话项, 该条的封顶档)
+    该条的封顶档 = 单条可按 parallel 交出 ? parallel : semi
     异常自降：收缩到 draft（不变式 4）。
     """
-    present = inp["presence"] == "present"
-    active = (present and inp["policy_enabled"] is True and inp["in_policy_scope"] is True
-              and _rank(inp["session_rung"]) >= _rank("semi") and inp["anomaly_downgraded"] is False)
+    item = inp["item"]
+    n = inp["n_minutes"]
+    n_ok = 0 < n <= N_MAX_MINUTES
+    scope_ok = inp["in_policy_scope"] and (not inp["is_large_group"] or inp["explicitly_listed"])
+    active = (inp["presence"] == "present" and n_ok and inp["policy_enabled"] and scope_ok
+              and _rank(inp["session_rung"]) >= _rank("semi")
+              and not inp["sticky_exit"] and not inp["anomaly_downgraded"]
+              and inp["handles_ready"] and inp["backend_cancel"])
+    item_parallel = (active and item["action"] == "conversation_send"
+                     and not item["draft_predates_presence"] and item["indicator_rendered"]
+                     and item["run_after_within_window"])
     session_term = (RUNGS[max(_rank(inp["session_rung"]), _rank("parallel"))]
                     if active else inp["session_rung"])
-    group = inp["group_rung"] if inp["group_rung"] is not None else inp["account_cap"]
-    action_cap = "parallel" if (inp["action"] == "conversation_send" and active) else "semi"
-    rung = _min_rung(inp["account_cap"], group, session_term, action_cap)
-    if inp["anomaly_downgraded"] is True:
+    groups = inp["group_rungs"] or [inp["account_cap"]]
+    item_cap = "parallel" if item_parallel else "semi"
+    rung = _min_rung(inp["account_cap"], *groups, session_term, item_cap)
+    if inp["anomaly_downgraded"]:
         rung = _min_rung(rung, "draft")
     return active, rung
 
@@ -206,15 +221,26 @@ def validate_presence_case(obj: object) -> list[str]:
     for fld in ("account_cap", "session_rung"):
         if inp[fld] not in RUNGS:
             viol.append(f"input.{fld} {inp[fld]!r} not in ladder {RUNGS}")
-    if inp["group_rung"] is not None and inp["group_rung"] not in RUNGS:
-        viol.append(f"input.group_rung {inp['group_rung']!r} not in ladder (or null)")
+    groups = inp["group_rungs"]
+    if not isinstance(groups, list) or any(g not in RUNGS for g in groups):
+        viol.append(f"input.group_rungs {groups!r} must be a list of ladder rungs (empty = no group)")
     if inp["presence"] not in PRESENCE_STATES:
         viol.append(f"input.presence {inp['presence']!r} not in {sorted(PRESENCE_STATES)}")
-    if inp["action"] not in ACTIONS:
-        viol.append(f"input.action {inp['action']!r} not in {sorted(ACTIONS)}")
-    for fld in ("policy_enabled", "in_policy_scope", "anomaly_downgraded"):
+    n = inp["n_minutes"]
+    if isinstance(n, bool) or not isinstance(n, (int, float)):
+        viol.append(f"input.n_minutes {n!r} must be a number")
+    for fld in PRESENCE_BOOL_FIELDS:
         if not isinstance(inp[fld], bool):
             viol.append(f"input.{fld} must be a bool")
+    item = inp["item"]
+    if not isinstance(item, dict):
+        viol.append("input.item must be an object")
+    else:
+        if item.get("action") not in ACTIONS:
+            viol.append(f"input.item.action {item.get('action')!r} not in {sorted(ACTIONS)}")
+        for fld in ITEM_BOOL_FIELDS:
+            if not isinstance(item.get(fld), bool):
+                viol.append(f"input.item.{fld} must be a bool")
     if exp.get("effective_rung") not in RUNGS:
         viol.append(f"expected.effective_rung {exp.get('effective_rung')!r} not in ladder")
     if not isinstance(exp.get("presence_parallel_active"), bool):

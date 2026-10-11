@@ -1,16 +1,27 @@
 {
   "case": "present_policy_on_broadcast",
-  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-3 + 封顶表",
-  "description": "在场并行只作用于会话内 send：广播仍封顶 semi",
+  "rule": "00-CONSTITUTION.md「在场并行」节 I-1 / I-2 / I-3 / I-6 + 封顶表",
+  "description": "只作用于会话内 send：广播封顶 semi",
   "input": {
     "account_cap": "parallel",
-    "group_rung": null,
+    "group_rungs": [],
     "session_rung": "semi",
     "presence": "present",
+    "n_minutes": 10,
     "policy_enabled": true,
     "in_policy_scope": true,
+    "is_large_group": false,
+    "explicitly_listed": false,
+    "sticky_exit": false,
     "anomaly_downgraded": false,
-    "action": "broadcast"
+    "handles_ready": true,
+    "backend_cancel": true,
+    "item": {
+      "action": "broadcast",
+      "draft_predates_presence": false,
+      "indicator_rendered": true,
+      "run_after_within_window": true
+    }
   },
   "expected": {
     "presence_parallel_active": true,
