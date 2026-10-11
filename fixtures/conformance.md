@@ -105,7 +105,9 @@ I-6 手柄不齐 / 出站后端未声明 `cancel` / 上述任一状态读不到 
 
 **验法**：`fixtures/presence-parallel/*.json` 每条给出输入与期望；`scripts/conformance.py` 的
 `evaluate_presence_parallel` 是参考实现，期望与判定不一致即红。消费方实现生效档判定后 SHOULD 用同一批
-fixture 自检。在场的**开始 / 维持 / 结束**（I-1）属运行时行为，fixture 只给出它的判定结果
+fixture 自检。频次上限的宪法上限 `R_max`（班迪 2026-10-12 审定：相邻两条 Agent 发出间隔 **≥ 30 秒**、单次在场以
+`parallel` 交出 **≤ 7 条**，恰好 30 秒与第 7 条均不超出）由 `item.rate` 边界 fixture 钉住，参考实现常量
+`R_MAX_MIN_GAP_SECONDS = 30` / `R_MAX_SENDS_PER_PRESENCE = 7`。在场的**开始 / 维持 / 结束**（I-1）属运行时行为，fixture 只给出它的判定结果
 （`present` / `absent` / `unknown`），不替代消费方对在场采集本身的测试。
 
 ---

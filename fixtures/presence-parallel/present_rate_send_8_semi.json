@@ -1,0 +1,37 @@
+{
+  "case": "present_rate_send_8_semi",
+  "rule": "00-CONSTITUTION.md「在场并行」宪法参数 R_max（班迪 2026-10-12 审定）+ I-3 频次上限逐条判",
+  "description": "R_max 条数边界：本次在场第 8 条（间隔 60 秒）超出，该条按 semi 逐条放行，不排队延后",
+  "input": {
+    "account_cap": "parallel",
+    "group_rungs": [],
+    "session_rung": "semi",
+    "presence": "present",
+    "n_minutes": 10,
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "is_large_group": false,
+    "explicitly_listed": false,
+    "sticky_exit": false,
+    "anomaly_downgraded": false,
+    "handles_ready": true,
+    "backend_cancel": true,
+    "item": {
+      "action": "conversation_send",
+      "draft_predates_presence": false,
+      "trigger_predates_presence": false,
+      "indicator_rendered": true,
+      "t_first_elapsed": true,
+      "within_rate_cap": false,
+      "run_after_within_window": true,
+      "rate": {
+        "send_ordinal": 8,
+        "gap_seconds": 60
+      }
+    }
+  },
+  "expected": {
+    "presence_parallel_active": true,
+    "effective_rung": "semi"
+  }
+}

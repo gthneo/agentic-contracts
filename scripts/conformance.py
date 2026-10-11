@@ -149,6 +149,11 @@ RUNGS = ("off", "draft", "semi", "parallel", "audit", "auto")
 PRESENCE_STATES = frozenset({"present", "absent", "unknown"})
 ACTIONS = frozenset({"conversation_send", "broadcast", "destructive_write", "first_contact"})
 N_MAX_MINUTES = 10  # 0 号宪法「在场并行」宪法参数 N_max（2026-10-11 已审定；改宪法时同步改这里）
+# 0 号宪法「在场并行」宪法参数 R_max（班迪 2026-10-12 审定；原拟 15 秒 / 20 条；改宪法时同步改这里）：
+#   间隔 ≥ R_MAX_MIN_GAP_SECONDS 不超出（恰好 30 秒允许）；本次在场以 parallel 交出的条数（含本条）
+#   ≤ R_MAX_SENDS_PER_PRESENCE 不超出（第 7 条允许、第 8 条起按 semi）。
+R_MAX_MIN_GAP_SECONDS = 30
+R_MAX_SENDS_PER_PRESENCE = 7
 # 读不到 / 不可信的状态在 fixture 里写成 null（I-1 fail-closed）：sticky / 作用域读不到 = 不生效，
 # 群成员数判不出 = 按超过 G 处理，N 读不到 = 配置不合法。
 NULLABLE_BOOL_FIELDS = frozenset({"in_policy_scope", "is_large_group", "sticky_exit"})
@@ -161,6 +166,37 @@ ITEM_BOOL_FIELDS = ("draft_predates_presence", "trigger_predates_presence", "ind
 # 离场期间到达的消息、在场开始后重新生成的回复（宪法「在场并行」I-3，待班迪审定）：
 #   "B" = 可按 parallel 交出（受 T_first 与频次上限约束）；"A" = 一律按 semi 逐条放行。
 N4_POLICY = "B"
+
+
+def rate_within_r_max(rate: dict) -> bool:
+    """按宪法上限 R_max 判本条是否不超出频次上限（消费方取值恰等于 R_max 时的判定）。
+
+    rate = {"send_ordinal": 本次在场以 parallel 交出的第几条（含本条，≥ 1）,
+            "gap_seconds": 与该会话上一条 Agent 发出的间隔（秒，≥ 0）}
+    """
+    return (rate["send_ordinal"] <= R_MAX_SENDS_PER_PRESENCE
+            and rate["gap_seconds"] >= R_MAX_MIN_GAP_SECONDS)
+
+
+def _validate_rate(rate: object, within: object) -> list[str]:
+    """item.rate（可选）的结构闸 + 与 item.within_rate_cap 的一致性闸。"""
+    if not isinstance(rate, dict):
+        return ["input.item.rate must be an object {send_ordinal, gap_seconds}"]
+    viol: list[str] = []
+    k = rate.get("send_ordinal")
+    if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+        viol.append(f"input.item.rate.send_ordinal {k!r} must be an integer ≥ 1")
+    g = rate.get("gap_seconds")
+    if isinstance(g, bool) or not isinstance(g, (int, float)) or g < 0:
+        viol.append(f"input.item.rate.gap_seconds {g!r} must be a number ≥ 0")
+    if viol:
+        return viol
+    computed = rate_within_r_max(rate)
+    if within is not computed:
+        viol.append(f"input.item.within_rate_cap {within!r} disagrees with R_max "
+                    f"(≤ {R_MAX_SENDS_PER_PRESENCE} 条 / ≥ {R_MAX_MIN_GAP_SECONDS} 秒) on rate {rate!r}: "
+                    f"rule gives {computed}")
+    return viol
 
 
 def _rank(rung: str) -> int:
@@ -260,6 +296,8 @@ def validate_presence_case(obj: object) -> list[str]:
                 viol.append(f"input.item missing field: {fld}")
             elif not (item[fld] is None or isinstance(item[fld], bool)):
                 viol.append(f"input.item.{fld} must be a bool or null (null = 读不到)")
+        if "rate" in item:
+            viol.extend(_validate_rate(item["rate"], item.get("within_rate_cap")))
     if exp.get("effective_rung") not in RUNGS:
         viol.append(f"expected.effective_rung {exp.get('effective_rung')!r} not in ladder")
     if not isinstance(exp.get("presence_parallel_active"), bool):
