@@ -1,0 +1,25 @@
+{
+  "case": "handover_control_state_cap_missing",
+  "check": "handover",
+  "rule": "outbox/dispatch.md v1.1 §0 / §7.1 + control-and-voice.md §8.1 PP-2…PP-5",
+  "description": "后端未声明 control.state（无 HUMAN 检测）→ 不以形态 B 下单",
+  "input": {
+    "outbox_caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "control_caps": {
+      "state": false,
+      "push": false,
+      "authored_by": false
+    },
+    "control_state": "agent",
+    "constitution_item_parallel": true,
+    "via_outbox": true
+  },
+  "expected": {
+    "form": "semi"
+  }
+}

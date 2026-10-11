@@ -1,0 +1,22 @@
+{
+  "case": "enqueue_legacy_no_authorization",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "不带 authorization 的旧下单体 = 形态 A，行为与 rev3 相同（未 opt-in 的后端）",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true
+    },
+    "request": {
+      "kind": "send_text"
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 202,
+    "code": null
+  }
+}

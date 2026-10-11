@@ -206,6 +206,65 @@ Authorization: Bearer <token>
 | 远程安全 | TLS/认证/订阅/隔离归 fullwechat/ops（原请求 §7），固化进 deploy kit + 运维手册；本契约只管控制态与口吻。 |
 | 公开仓 | 示例全合成（无真实 wxid/token/PII）。 |
 
+### §8.1 在场并行在本渠道的可实现条件（v1.3 · 按能力位 opt-in）
+
+> 依据：0 号宪法 v2.1「在场并行」节（I-1…I-7）。本节**只**回答一个问题：§8 上一行（「人占闸与 `parallel`
+> 及以上档」）把本渠道封顶在 `semi`，在**界面在场**期间，什么条件下这条封顶可以解除。
+
+**为什么上一行封顶 `semi`**：理由只有一个 —— Agent 的写路径要驱动微信 GUI，而 `parallel` 的定义是人也在
+同一条线索上发；人若也在微信 GUI 上发，人与 Agent 争用同一个客户端界面（GUI contention，界面争用）。
+**本节写明这一争用在什么条件下被消除。** 条件之外的一切（总闸、生效协作档、准入条件、封顶表、人占闸）不变。
+
+**按能力位 opt-in，严格增量**：出站后端**没有**声明 `outbox.presence_parallel: true`（`../outbox/dispatch.md §7.1`）
+的账号，上一行的 `semi` 封顶**一字不变**，本节对它不产生任何效果。能力位按账号读（一后端实例 = 一账号，
+`../outbox/dispatch.md §2` 不变式）。
+
+**条件 PP-1…PP-6 —— 全部 MUST；缺任一条，该账号在本渠道仍封顶 `semi`：**
+
+- **PP-1 人在消费方界面，不在微信 GUI**：在场 = 0 号宪法 I-1 的**界面在场**（人在消费方界面上看这条会话）。
+  人在微信 GUI 上的任何直接操作 = **渠道接管** → §1 HUMAN 态，按 PP-4 处理。界面在场期间，人自己要发的话
+  也从消费方界面发、经 `POST /api/outbox` 下单（`../outbox/dispatch.md §0` 形态 A：人按下发送即逐条确认）。
+- **PP-2 全部写动作串行于一条通路（无界面争用）**：
+  (a) **后端侧**：该账号所有驱动 GUI 的写动作 —— outbox worker 执行的任务、同步端点（`POST /api/messages`、
+  朋友圈赞 / 评 / 发布）、撤销车道（`../outbox/dispatch.md §2.1` 口径①）—— 由**同一个互斥锁（mutual-exclusion
+  lock）**串行化，任一时刻至多一个动作在驱动 GUI。声明 `presence_parallel: true` 即承诺此项。
+  (b) **消费方侧**：该账号只要有任一会话处于在场并行，该账号的**全部**对外写（含人从消费方界面发的）MUST 走
+  `POST /api/outbox`，不走同步端点。人与 Agent 的发送排进同一条队列，由后端单 worker 依次执行。
+- **PP-3 控制态检测是前提**：后端 MUST 已声明 `control.state: true`（§6.2）—— 没有 HUMAN 检测就无从执行 PP-4。
+  声明 `presence_parallel: true` 而 `control.state` 不为 `true` = **违约**，消费方 MUST 按未声明处理。
+  `control.push` SHOULD 为 `true`（HUMAN 通知时延按秒计，而不是按轮巡周期计）。
+- **PP-4 渠道接管照旧立即停**：HUMAN 态（§1 检测到非 Agent 注入的输入）下，即便该账号有会话处于在场并行：
+  (a) **后端** MUST 不再开始执行该账号的任何任务（§5 既有行为），**并 MUST 立即把该账号全部 `queued` /
+  `deferred` 的在场并行任务转为 `cancelled`**（`lastError: "HUMAN_TAKEOVER"`，`../outbox/dispatch.md §3`）
+  —— 这一步在后端完成，不依赖消费方收到事件；
+  (b) **消费方**收到 `human_takeover`、轮巡读到 `state:"human"`、或拉不到 control_state（§3 保守口径）时，
+  MUST 立即结束该账号**所有会话**的在场并行，并对仍未执行的在场并行任务发 `cancel`（与 (a) 重叠，幂等）。
+  这是一次**可续的结束**：回到 AGENT 态后，人在消费方界面该会话视图内再产生一次直接输入，才算新一次在场开始
+  （0 号宪法 I-1）；不是 sticky。正处于 `running` 的那一条（PP-2 保证至多一条）按 `../outbox/dispatch.md §6`
+  不可撤，消费方在审计里逐条标出。
+  - **与 0 号宪法不变式 4 按档区分的关系**：不变式 4 说 `parallel` 及以上「人发言是同席信号、不是自降信号」。
+    在本渠道：**人从消费方界面发言** = 同席信号（不停 Agent）；**人在微信 GUI 上操作** = 渠道接管，仍按 §2
+    人占闸立即停。这比宪法更严（技术契约可以更严，不得更松），理由是 GUI 争用不随档位消失。
+- **PP-5 硬撤单 + 有效期**：后端声明 `presence_parallel: true` 时，`cancel` MUST 为 `true`（`../outbox/dispatch.md
+  §7.1`，对 opt-in 的账号由可选能力位升为 MUST），并 MUST 执行在场并行任务的有效期（`presence_ttl_secs`，
+  `../outbox/dispatch.md §2.3`）：过期未开始执行的任务不再执行。
+- **PP-6 每一条带授权形态**：以在场并行名义交出的每一条 MUST 带 `authorization: "presence_parallel"` +
+  `presence_session_id` + `presence_ttl_secs`（`../outbox/dispatch.md §0` 形态 B、§2.3），后端据此留痕；
+  后端未 opt-in 时拒绝受理。
+
+**与 §2 公式、§8 上一行的关系**：PP-1…PP-6 全部满足时，§8 上一行所说「`parallel` 在本渠道不可实现」的原因
+（GUI 争用）已被消除 —— 该账号在**界面在场期间**的会话内 send 可按 0 号宪法 I-3 判到 `parallel`；§2 公式里的
+每一项（人占闸、总闸、生效协作档、准入条件、封顶表）照常取与（AND）。本文件其他位置「写路径需驱动 GUI 即封顶
+`semi`」的表述，在本节条件全部满足的账号、界面在场期间，按本节读。本节**只解除 GUI 层渠道封顶这一项**：
+不放开 `audit` / `auto`；不放开广播 / 删除 / 建立关系（封顶表 `semi`）；不放开非界面在场的会话；
+不放开在场开始之前拟好的稿（0 号宪法 I-3）。任一条件失效（能力位撤回、control_state 拉不到、HUMAN 态），
+该账号即刻回到上一行的 `semi` 封顶。
+
+**本节不改变**：§1 两态机与 `idle_threshold`；§2 HUMAN 态的让位行为；§4 `authored_by` 口径（在场并行期间
+Agent 发出的每一条由消费方依据自己的下单记录标为 Agent 发出，满足 0 号宪法 I-6「逐条回交」；后端 `authored_by`
+能力位可用时两者互相印证）；§6.2 与 §7 的信封与能力声明一字未动（新能力位定义在 `../outbox/dispatch.md §7.1`，
+不在本文件另写一份）。
+
 ---
 
 ## 协作约定
@@ -218,3 +277,8 @@ fullwechat 实现 §5（检测 / control_state / `authored_by` / 推送），AMR
 三层作用域 + 准入条件项，废旧值域 `observe/supervised` 与 `countdown`；写明 HUMAN 态 = 自动收缩到 `draft`。
 **无 schema 变更**，§7 信封与 §6 能力声明一字未动）。v1 = 2026-06-28 初版。
 `authored_by` 并入 message-canonical 后，其字段定义以本契约 §4.1 为准。*
+
+*当前版本：**v1.3** / 2026-10-11（修订：新增 §8.1「在场并行在本渠道的可实现条件」—— 出站后端按能力位
+`outbox.presence_parallel` opt-in 后，界面在场期间 GUI 层 `semi` 封顶在 PP-1…PP-6 全部满足时解除；未声明的账号
+一字不变。依赖 0 号宪法 v2.1「在场并行」节与本文件 v1.2。**无 schema 变更**，§6.2 / §7 一字未动）。
+上方为此前各版的修订记录。*

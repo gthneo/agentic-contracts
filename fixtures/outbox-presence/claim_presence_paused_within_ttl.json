@@ -1,0 +1,16 @@
+{
+  "case": "claim_presence_paused_within_ttl",
+  "check": "claim",
+  "rule": "outbox/dispatch.md v1.1 §3 + control-and-voice.md §8.1 PP-4",
+  "description": "形态 B，pause 中、未过期 → 不认领",
+  "input": {
+    "authorization": "presence_parallel",
+    "control_state": "agent",
+    "secs_since_accept": 30,
+    "presence_ttl_secs": 300,
+    "paused": true
+  },
+  "expected": {
+    "action": "hold"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "case": "handover_backend_not_opted_in",
+  "check": "handover",
+  "rule": "outbox/dispatch.md v1.1 §0 / §7.1 + control-and-voice.md §8.1 PP-2…PP-5",
+  "description": "后端未声明 presence_parallel → 一切照旧（形态 A）",
+  "input": {
+    "outbox_caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true
+    },
+    "control_caps": {
+      "state": true,
+      "push": true,
+      "authored_by": true
+    },
+    "control_state": "agent",
+    "constitution_item_parallel": true,
+    "via_outbox": true
+  },
+  "expected": {
+    "form": "semi"
+  }
+}

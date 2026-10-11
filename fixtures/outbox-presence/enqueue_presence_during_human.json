@@ -1,0 +1,26 @@
+{
+  "case": "enqueue_presence_during_human",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "账号处于 HUMAN 态（渠道接管）→ 不受理形态 B",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "send_text",
+      "authorization": "presence_parallel",
+      "presence_session_id": "ps_test_0001",
+      "presence_ttl_secs": 300
+    },
+    "control_state": "human",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 409,
+    "code": "HUMAN_IN_CONTROL"
+  }
+}

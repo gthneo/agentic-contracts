@@ -1,0 +1,25 @@
+{
+  "case": "handover_presence_declared_cancel_false",
+  "check": "handover",
+  "rule": "outbox/dispatch.md v1.1 §0 / §7.1 + control-and-voice.md §8.1 PP-2…PP-5",
+  "description": "声明 presence_parallel 而 cancel 为 false = 违约 → 不以形态 B 下单",
+  "input": {
+    "outbox_caps": {
+      "account": true,
+      "pause": true,
+      "cancel": false,
+      "presence_parallel": true
+    },
+    "control_caps": {
+      "state": true,
+      "push": true,
+      "authored_by": true
+    },
+    "control_state": "agent",
+    "constitution_item_parallel": true,
+    "via_outbox": true
+  },
+  "expected": {
+    "form": "semi"
+  }
+}

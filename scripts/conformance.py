@@ -101,6 +101,165 @@ def validate_read_signal(obj: object) -> list[str]:
     return viol
 
 
+# outbox/dispatch.md v1.1（rev4）§0 / §2.3 / §3 / §7.1 + control-and-voice.md §8.1：
+# 在场并行任务（形态 B）的受理、认领与消费方交出判定。参考实现；漂移先改契约，再改这里。
+OUTBOX_AUTHORIZATIONS = frozenset({"human_confirmed", "presence_parallel"})
+PRESENCE_TTL_MAX_SECS = 600  # outbox/dispatch.md §2.3：presence_ttl_secs ∈ [1, 600]（W ≤ N ≤ N_max = 10 分钟）
+OUTBOX_PRESENCE_CHECKS = frozenset({"enqueue", "claim", "handover"})
+CONTROL_STATES = frozenset({"agent", "human"})
+
+
+def _is_int(v: object) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def evaluate_outbox_enqueue(inp: dict) -> tuple[int, str | None]:
+    """后端受理判定（dispatch §2.3 表，按序）。返回 (HTTP 状态, code)。WRONG_ACCOUNT 不在此建模。"""
+    req = inp["request"]
+    auth = req.get("authorization", "human_confirmed")
+    if auth not in OUTBOX_AUTHORIZATIONS:
+        return 400, "BAD_AUTHORIZATION"
+    if auth == "human_confirmed":
+        if "presence_session_id" in req or "presence_ttl_secs" in req:
+            return 400, "PRESENCE_FIELDS_WITHOUT_AUTHORIZATION"
+        return 202, None
+    if inp["caps"].get("presence_parallel") is not True:
+        return 409, "PRESENCE_PARALLEL_UNSUPPORTED"
+    if req.get("kind") != "send_text":
+        return 400, "PRESENCE_KIND_NOT_ALLOWED"
+    sid = req.get("presence_session_id")
+    if not (isinstance(sid, str) and sid):
+        return 400, "MISSING_PRESENCE_SESSION"
+    ttl = req.get("presence_ttl_secs")
+    if not (_is_int(ttl) and 1 <= ttl <= PRESENCE_TTL_MAX_SECS):
+        return 400, "BAD_PRESENCE_TTL"
+    if inp["control_state"] != "agent":
+        return 409, "HUMAN_IN_CONTROL"
+    if inp["run_after_beyond_deadline"]:
+        return 409, "PRESENCE_WINDOW_EXCEEDED"
+    return 202, None
+
+
+def evaluate_outbox_claim(inp: dict) -> str:
+    """worker 对一条 queued 任务的处置（dispatch §3 + control-and-voice §8.1 PP-4）。
+
+    返回 run | hold | expire | cancel。形态 B：HUMAN → cancel；过截止 → expire；pause → hold；否则 run。
+    形态 A：pause 或 HUMAN → hold；否则 run（rev3 行为不变）。
+    """
+    if inp["authorization"] == "presence_parallel":
+        if inp["control_state"] == "human":
+            return "cancel"
+        if inp["secs_since_accept"] > inp["presence_ttl_secs"]:
+            return "expire"
+        if inp["paused"]:
+            return "hold"
+        return "run"
+    if inp["paused"] or inp["control_state"] == "human":
+        return "hold"
+    return "run"
+
+
+def evaluate_outbox_handover(inp: dict) -> str:
+    """消费方能否以形态 B 交出这一条（dispatch §0 / §7.1 + control-and-voice §8.1 PP-2…PP-5）。
+
+    返回 presence_parallel | semi（semi = 只能按形态 A 逐条人审确认）。
+    constitution_item_parallel = 0 号宪法 v2.1「在场并行」I-3「单条可按 parallel 交出」的判定结果
+    （该判定本身的 fixture 在 fixtures/presence-parallel/，随 PR #25）。
+    control_state 取 agent | human | unknown（unknown = 拉不到，按 HUMAN 处理）。
+    """
+    c = inp["outbox_caps"]
+    caps_ok = (c.get("presence_parallel") is True and c.get("cancel") is True
+               and c.get("pause") is True and c.get("account") is True)
+    ok = (caps_ok and inp["control_caps"].get("state") is True
+          and inp["control_state"] == "agent"
+          and inp["constitution_item_parallel"] and inp["via_outbox"])
+    return "presence_parallel" if ok else "semi"
+
+
+def validate_outbox_presence_case(obj: object) -> list[str]:
+    """对单条 outbox-presence fixture 返回违规列表（[] = 合规）。纯函数，永不抛。
+
+    结构闸（字段在、值落枚举）+ 语义闸（expected 必须等于参考实现的判定）。
+    """
+    if not isinstance(obj, dict):
+        return [f"outbox-presence case is not an object (got {type(obj).__name__})"]
+    viol: list[str] = []
+    if not (isinstance(obj.get("case"), str) and obj.get("case")):
+        viol.append("case must be a non-empty string")
+    check, inp, exp = obj.get("check"), obj.get("input"), obj.get("expected")
+    if check not in OUTBOX_PRESENCE_CHECKS:
+        return viol + [f"check {check!r} not in {sorted(OUTBOX_PRESENCE_CHECKS)}"]
+    if not isinstance(inp, dict) or not isinstance(exp, dict):
+        return viol + ["input and expected must be objects"]
+    try:
+        if check == "enqueue":
+            for fld in ("caps", "request", "control_state", "run_after_beyond_deadline"):
+                if fld not in inp:
+                    viol.append(f"input missing field: {fld}")
+            if viol:
+                return viol
+            if not isinstance(inp["caps"], dict) or not isinstance(inp["request"], dict):
+                return viol + ["input.caps and input.request must be objects"]
+            if inp["control_state"] not in CONTROL_STATES:
+                viol.append(f"input.control_state {inp['control_state']!r} not in {sorted(CONTROL_STATES)}")
+            if not isinstance(inp["run_after_beyond_deadline"], bool):
+                viol.append("input.run_after_beyond_deadline must be a bool")
+            if not _is_int(exp.get("status")):
+                viol.append("expected.status must be an int")
+            if viol:
+                return viol
+            status, code = evaluate_outbox_enqueue(inp)
+            if (status, code) != (exp["status"], exp.get("code")):
+                viol.append(f"enqueue: expected ({exp['status']}, {exp.get('code')!r}), "
+                            f"rule gives ({status}, {code!r}) (outbox/dispatch.md §2.3)")
+        elif check == "claim":
+            for fld in ("authorization", "control_state", "secs_since_accept", "presence_ttl_secs", "paused"):
+                if fld not in inp:
+                    viol.append(f"input missing field: {fld}")
+            if viol:
+                return viol
+            if inp["authorization"] not in OUTBOX_AUTHORIZATIONS:
+                viol.append(f"input.authorization {inp['authorization']!r} not in enum")
+            if inp["control_state"] not in CONTROL_STATES:
+                viol.append(f"input.control_state {inp['control_state']!r} not in {sorted(CONTROL_STATES)}")
+            if not (_is_int(inp["secs_since_accept"]) and _is_int(inp["presence_ttl_secs"])):
+                viol.append("input.secs_since_accept / presence_ttl_secs must be ints")
+            if not isinstance(inp["paused"], bool):
+                viol.append("input.paused must be a bool")
+            if exp.get("action") not in ("run", "hold", "expire", "cancel"):
+                viol.append(f"expected.action {exp.get('action')!r} not in run|hold|expire|cancel")
+            if viol:
+                return viol
+            action = evaluate_outbox_claim(inp)
+            if action != exp["action"]:
+                viol.append(f"claim: expected {exp['action']!r}, rule gives {action!r} "
+                            f"(outbox/dispatch.md §3 + control-and-voice.md §8.1 PP-4)")
+        else:  # handover
+            for fld in ("outbox_caps", "control_caps", "control_state", "constitution_item_parallel", "via_outbox"):
+                if fld not in inp:
+                    viol.append(f"input missing field: {fld}")
+            if viol:
+                return viol
+            if not isinstance(inp["outbox_caps"], dict) or not isinstance(inp["control_caps"], dict):
+                return viol + ["input.outbox_caps and input.control_caps must be objects"]
+            if inp["control_state"] not in ("agent", "human", "unknown"):
+                viol.append(f"input.control_state {inp['control_state']!r} not in agent|human|unknown")
+            for fld in ("constitution_item_parallel", "via_outbox"):
+                if not isinstance(inp[fld], bool):
+                    viol.append(f"input.{fld} must be a bool")
+            if exp.get("form") not in ("presence_parallel", "semi"):
+                viol.append(f"expected.form {exp.get('form')!r} not in presence_parallel|semi")
+            if viol:
+                return viol
+            form = evaluate_outbox_handover(inp)
+            if form != exp["form"]:
+                viol.append(f"handover: expected {exp['form']!r}, rule gives {form!r} "
+                            f"(outbox/dispatch.md §0 / §7.1 + control-and-voice.md §8.1)")
+    except (KeyError, TypeError, AttributeError) as e:  # 永不抛：结构异常记为违规
+        viol.append(f"malformed case: {e!r}")
+    return viol
+
+
 RICH_FILE_CDN = frozenset({"recoverable", "expired", "unknown"})
 RICH_FILE_STATUS = frozenset({"local", "recoverable", "expired"})
 RICH_FILE_REQUIRED = ("file_id", "name", "provenance", "has_local", "cdn", "status", "retrieval_path")
@@ -195,6 +354,32 @@ def main(argv: list[str]) -> int:
         total_viol += len(viol)
         if not viol:
             print(f"  [ok]   {f.name} (read-signal)")
+
+    # outbox/dispatch.md v1.1（rev4）+ control-and-voice.md §8.1：在场并行任务（形态 B）的受理 / 认领 / 交出判定。
+    op_dir = root / "fixtures" / "outbox-presence"
+    op_files = sorted(op_dir.glob("*.json"))
+    seen_op_cases: dict[str, str] = {}
+    for f in op_files:
+        try:
+            obj = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  [FAIL] {f.name}: cannot parse JSON: {e}", file=sys.stderr)
+            total_viol += 1
+            continue
+        viol = validate_outbox_presence_case(obj)
+        for v in viol:
+            print(f"  [FAIL] {f.name}: {v}", file=sys.stderr)
+        total_viol += len(viol)
+        case = obj.get("case") if isinstance(obj, dict) else None
+        if isinstance(case, str) and case:
+            if case in seen_op_cases:
+                print(f"  [FAIL] {f.name}: case {case!r} collides with {seen_op_cases[case]}", file=sys.stderr)
+                total_viol += 1
+            else:
+                seen_op_cases[case] = f.name
+        if not viol:
+            print(f"  [ok]   {f.name} (outbox-presence)")
+    print(f"  outbox-presence: {len(op_files)} fixtures checked")
 
     # rich-file/archive.md §2：富文件 item（另一套校验，单独目录）。
     rich_dir = root / "fixtures" / "rich-file"

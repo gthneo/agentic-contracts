@@ -1,12 +1,25 @@
-# 出站派发契约 v1（提案·rev2）— Outbox Dispatch Contract（并行下单 · 串行拟人出站 · 异步回执）
+# 出站派发契约 v1.1（rev4）— Outbox Dispatch Contract（并行下单 · 串行拟人出站 · 异步回执）
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`outbox/` → AMR/@gthneo）。
 >
-> **日期** 2026-07-21（rev1/rev2 2026-07-22 · rev3 2026-07-23）｜ **状态** **提案·rev3**——AMR仁德 对抗审 → PD仁德 确认 → rev1 → AMR仁德 rev1 复核（3 BLOCKING 真落实、宪法无 FAIL，卡 5 个单行口子）→ **rev2 = PD仁德 补 R1–R5 + 5 建议** → **rev3 = PD仁德 据班迪 SF1 拍板补 `pause` 硬化（`cancel` 明确不硬化）**，待 AMR仁德 非作者 fresh agent 复核 rev3 delta → 班迪 merge。**不 merge。**
+> **日期** 2026-07-21（rev1/rev2 2026-07-22 · rev3 2026-07-23 · rev4 2026-10-11）｜ **状态** rev1–rev3 已随 PR #21 合入（v1）。**rev4（v1.1）= AMR仁德 据 0 号宪法 v2.1「在场并行」节（PR #25）补第二种合法确认形态，提案中**：待 PD仁德 确认 → 非作者 fresh agent 对抗审 → 班迪 merge。**rev3 时的状态记录**：**提案·rev3**——AMR仁德 对抗审 → PD仁德 确认 → rev1 → AMR仁德 rev1 复核（3 BLOCKING 真落实、宪法无 FAIL，卡 5 个单行口子）→ **rev2 = PD仁德 补 R1–R5 + 5 建议** → **rev3 = PD仁德 据班迪 SF1 拍板补 `pause` 硬化（`cancel` 明确不硬化）**，待 AMR仁德 非作者 fresh agent 复核 rev3 delta → 班迪 merge。**不 merge。**
 > **from** PD仁德（powerdata-wx / fullwechat 微信后端，`/Users/neo/as/fullwechet`）—— 契约执笔 + 实现方
 > **to** AMR仁德（AgenticMessageRouter，`/Users/neo/as/agenticmessagerouter`）—— 契约定义/审计方 + 下单方
 > **姊妹契约** `../send-target/*`（同步发送目标）· `../message/canonical.md`（入站消息）· `../moments/read-like.md`（朋友圈动作）
 > **适用范围** **出站动作的排队派发**：消费方**人审确认后**并行下单 → 后端单 worker 串行 + 拟人节奏执行 → 结果异步取回。**不覆盖**动作本身的语义（发什么/赞哪条见姊妹契约），也不覆盖入站。
+
+### rev4 变更摘要（v1.1 · 在场并行 · 2026-10-11 · 依赖 PR #25）
+- **§0 第二种合法确认形态**：「人审确认闸」从一种扩为两种 —— **形态 A** 逐条人审确认（现行，缺省）；**形态 B**
+  「在场并行生效、且审计关联到在场会话 id」（0 号宪法 v2.1「在场并行」节 I-3 判定该条「可按 `parallel` 交出」）。
+  形态 B 的任务 MUST 带 `authorization: "presence_parallel"` + `presence_session_id` + `presence_ttl_secs`。
+- **§2 / §2.3 新字段与受理规则**：`authorization` 封闭枚举（缺省 = `"human_confirmed"`，旧消费方零改动）；
+  形态 B 只允许 `send_text`；后端未 opt-in → `409 PRESENCE_PARALLEL_UNSUPPORTED`；HUMAN 态 → `409 HUMAN_IN_CONTROL`；
+  预计放出时刻超出有效期 → `409 PRESENCE_WINDOW_EXCEEDED`。
+- **§3 两条新转移**：形态 B 任务过有效期未开始执行 → `failed`（`PRESENCE_EXPIRED`）；渠道接管（HUMAN 态）→
+  后端立即把形态 B 的 `queued`/`deferred` 任务转 `cancelled`（`HUMAN_TAKEOVER`）。
+- **§7.1 新能力位 `presence_parallel`（opt-in）**：声明为 `true` 的后端，`cancel` 由可选能力位升为 **MUST**（rev3 的
+  「`cancel` 不硬化」对它不适用），且承诺 §7.1 所列四项（对应 `control-and-voice.md §8.1` PP-2…PP-5）。未声明的后端：本契约行为一字不变。
+- **严格增量**：不带 `authorization` 的下单 = 形态 A，与 rev3 完全相同；不声明 `presence_parallel` 的后端无需改动。
 
 ### rev3 变更摘要（SF1·班迪 2026-07-23 拍板）
 - **SF1（HITL 护盾·硬化）** §7.1/§6：`pause`（全局急停闸）升格为**强制不变式（MUST）**，与 `account` 同列——`"pause"` **恒为 `true`**、不可声明 `false`；若某实现报 `pause:false` 或不提供可用的全局急停，即为**违约**，消费方 **MUST 拒绝对其下单**（一个「停不下来」的出站后端不得被允许对外发送）。堵「一句 `pause:false` 让人失去急停刹车」。
@@ -47,6 +60,24 @@
 - **新消费方准入前置**：任何新接入方在首次下单前 **MUST 书面声明其人审闸的位置与形态**（在契约/接入登记里）；**未声明者不得下单**。
 - **队列不是确认闸的替代**：它的价值 = 把**人已经批准的** N 条按拟人节奏、串行、可靠地放出去。参照实现：AMR仁德 现网 `api_confirm_outbox`（queue-for-human → 人 confirm → 才 enqueue-to-backend）。
 
+**合法的确认形态有且只有两种（rev4）** —— 上面「人审确认闸」指下列二者之一；二者之外的任何下单都不合法：
+
+| 形态 | 名称 | 什么构成「人已确认」 | 下单体标记 | 适用 |
+|---|---|---|---|---|
+| **A** | 逐条人审确认（缺省） | 人对**这一条**逐条确认（含人在消费方界面亲手按下发送） | `authorization` 缺省或 `"human_confirmed"` | 一切 `kind`；rev3 及以前的全部行为 |
+| **B** | 在场并行 | **在场并行生效、且审计关联到在场会话 id**：消费方按 0 号宪法 v2.1「在场并行」节 I-3 判定该条「可按 `parallel` 交出」（人显式开启的策略 + 人此刻界面在场 + 全部前置条件），并把这一条关联到该次在场的审计记录（I-6） | `authorization: "presence_parallel"` + `presence_session_id` + `presence_ttl_secs`（§2.3） | 仅 `send_text`（会话内发消息）；仅限后端已声明 `presence_parallel: true` 的账号（§7.1） |
+
+- **形态 B 的判定责任在消费方**：后端是哑执行器，**不判断、也无从验证**人是否在场。`authorization` 是消费方的声明，
+  后端用它做三件事：**留痕**（落 `outbox` 行并在回执回显，§4）、**拒绝**（未 opt-in / 字段不全 / HUMAN 态，§2.3）、
+  **执行有效期与渠道接管撤单**（§3）。在场判定本身的正确性由消费方的实现与审计负责（0 号宪法 I-1 / I-6）。
+- **形态 B 的消费方准入前置**：消费方首次以形态 B 下单前，**MUST 书面声明**（接入登记里）其在场判定实现：直接输入事件的
+  区分方法、`N`、状态上报周期 `L`、有效期 `W` 的取值（0 号宪法 I-1 / I-3）。未声明者不得以形态 B 下单（形态 A 不受影响）。
+- **形态 B 的消费方侧闸是第一道**：旧后端（rev3 及以前）不认识 `authorization` 字段，会把形态 B 任务**当作普通任务执行**
+  （既不拒绝，也不执行有效期与渠道接管撤单）。故消费方 **MUST 只对已声明 `presence_parallel: true` 且 `cancel: true`
+  的后端**以形态 B 下单（§7.1）；后端侧拒绝是第二道。
+- **在场一结束，消费方 MUST 立即撤下**以形态 B 交出、尚未执行的任务（`cancel`，§6；0 号宪法 I-3）；有效期（§2.3）是
+  消费方异常退出、撤单未发出时的后端侧兜底，不替代消费方撤单。
+
 **本契约是**：下单形态（§2）+ 任务状态机（§3）+ 结果回执（§4）+ 拟人节奏与配额的语义边界（§5）+ HITL 手柄（§6）+ 能力声明（§7）。
 **本契约不是**：动作内容语义（发什么文本 / 赞哪个 tid → 姊妹契约）；不是「发不发、发给谁、什么时候发」的决策（= **消费方 + 人领域**）；不是入站。
 
@@ -57,7 +88,7 @@
 ## §1 设计原则
 
 1. **并行下单、串行执行**。下单可任意并发；**执行严格串行**（单 worker）——因为被驱动的微信 GUI 是**独占资源**，并行驱动必然互相破坏。这条是本契约存在的根本理由。
-2. **下单 = act（人审后）**。`POST /api/outbox` 立即返回 `202 Accepted` + 任务 id，**不等执行结果**（消费方不因 GUI 慢而阻塞）；但**下单本身是人审确认闸之后的动作**（§0 HITL 边界）——「不等结果」指**执行时长解耦**，不是「跳过人的确认」。
+2. **下单 = act（人审后）**。`POST /api/outbox` 立即返回 `202 Accepted` + 任务 id，**不等执行结果**（消费方不因 GUI 慢而阻塞）；但**下单本身是人审确认闸之后的动作**（§0 HITL 边界；确认形态 A / B 见 §0）——「不等结果」指**执行时长解耦**，不是「跳过人的确认」。
 3. **持久化 + 崩溃可恢复（按 kind 分档）**。任务落库（不是内存队列）；进程重启后回收孤儿 `running` 任务——**幂等 kind 重排、非幂等 kind park 交人**（§3，B3）。不丢单、不悬挂、不重复外发。
 4. **幂等**。`idempotencyKey` 相同 = 同一意图，重复下单**不重复执行**（消费方重试安全）；键 **per-account 作用域**（§2.2）。
 5. **账号守恒（铁律·B2）**。下单体 + 回执**恒带 `account`**；后端**只在下单账号 == 本实例登录账号时执行**，不符即拒，**永不跨账号执行、无跨账号回退**。
@@ -98,6 +129,9 @@ Content-Type: application/json
 | `payload` | obj | 否 | 该 `kind` 的参数（§2.1）。缺省 `{}`。 |
 | `idempotencyKey` | str | 否（AMR仁德 侧当必填） | 幂等键（§2.2）。**AMR仁德 侧一律由 outbox 行 id/内容 hash 派生稳定键、当必填**——不给则无重试保护。 |
 | `platform` | str | 否 | 缺省 `"wechat"`（为未来多渠道预留）。 |
+| `authorization` | str | 否 | **确认形态（rev4）**，封闭枚举：`"human_confirmed"`（形态 A，**缺省**）\| `"presence_parallel"`（形态 B，§0 / §2.3）。未知值 → `400 BAD_AUTHORIZATION`。 |
+| `presence_session_id` | str | 形态 B 必填 | 消费方侧该次**界面在场**的审计记录 id（0 号宪法 I-6）。非空字符串，对后端不透明（后端不解析、只留痕与回显）。形态 A 下 MUST 不出现（出现 → `400`）。 |
+| `presence_ttl_secs` | int | 形态 B 必填 | 有效期（秒），`1 ≤ presence_ttl_secs ≤ 600`；消费方取其 `W`（0 号宪法 I-3，`W ≤ N ≤ 10 分钟`）。后端以**自己的受理时刻**起算截止时刻（不用消费方时间戳，免跨机时钟偏差）。形态 A 下 MUST 不出现。 |
 | `maxAttempts` | int | 否 | 该任务最多执行次数。**缺省按 kind 幂等性**：非幂等（`send_text`/`comment_moment`）= **`1`（at-most-once）**；幂等（`like_moment`）= `2`。后端 clamp `[1,10]`；**非幂等 kind 显式给 `>1` → `400` 拒绝**（建议1·收口）——不给「配置即违约」留模糊空间,at-most-once 是非幂等 kind 的**硬约束**,唯一安全重试路径是未来的 pre-send marker（§3）。 |
 
 **账号守恒不变式（invariant·B2）**：本契约按**「一后端实例 = 一微信账号 = 一队列」**（端点身份即账号身份，AMR仁德 `db.account_backend` 按会话所属账号绑各自 host+token）。`account` 字段在此前提下仍**恒必填**，因为它是：(i) AMR仁德 机器断言「回执.account == 下单.account」的依据；(ii) 前向接口——**若该前提被打破（某实例服务多账号），`WRONG_ACCOUNT` 硬校验 → per-account 队列/路由要求自动升级**，`account` 已在契约面、无需改 shape。
@@ -127,6 +161,29 @@ Content-Type: application/json
 - **口径②（已定）**：幂等键**有效窗口缺省 ≥ 7 天（可配），到期 GC**。非对称取舍：一条迟到的重复外发是**不可逆对外伤害**，库里几行是廉价的 → 偏长窗口。终态任务保留 ≥7d 供 reconcile（见 §4 `?idempotencyKey=` 查询），过期再 GC。
 - **两个「防重」是两件事,别混（建议3）**：(i) **恢复期幂等** = 本节的 `idempotencyKey` + `maxAttempts`（跨下单/重试/崩溃回收,防**同一意图**被执行两遍,窗口 ≥7d）;(ii) 同步端点里 `send_text` 的**去重窗**（`SEND_DEDUP`,姊妹 `send-target` 契约,秒级,挡「调用方超时后重试→重复投递」的在飞窗口）。前者是 outbox 层的意图幂等,后者是执行层的在飞防抖——**机制、时间尺度、作用层都不同**,不可互相替代。
 
+### 2.3 在场并行任务（形态 B）的受理规则（rev4）
+
+实现了 rev4 的后端（**无论是否声明** `presence_parallel`）按下列顺序判定（`WRONG_ACCOUNT` 校验照旧最先）。rev3 及以前的后端不认识这些字段、不会走这张表 —— 那一侧由消费方侧闸挡住（§0）：
+
+| # | 条件 | 结果 |
+|---|---|---|
+| 1 | `authorization` 不在枚举内 | `400 BAD_AUTHORIZATION` |
+| 2 | 形态 A（`authorization` 缺省或 `"human_confirmed"`）而带了 `presence_session_id` / `presence_ttl_secs` | `400 PRESENCE_FIELDS_WITHOUT_AUTHORIZATION`（半填的下单体 fail-closed） |
+| 3 | 形态 A，其余合法 | `202`，与 rev3 完全相同 |
+| 4 | 形态 B，而本后端未声明 `presence_parallel: true`（含按配置对该账号关闭） | `409 PRESENCE_PARALLEL_UNSUPPORTED` |
+| 5 | 形态 B，`kind` ≠ `send_text` | `400 PRESENCE_KIND_NOT_ALLOWED`（在场并行只作用于会话内发消息，0 号宪法 I-3） |
+| 6 | 形态 B，`presence_session_id` 缺失 / 空 / 非字符串 | `400 MISSING_PRESENCE_SESSION` |
+| 7 | 形态 B，`presence_ttl_secs` 缺失 / 非整数 / 越界 `[1,600]` | `400 BAD_PRESENCE_TTL` |
+| 8 | 形态 B，该账号当前处于 HUMAN 态（`control-and-voice.md §1`） | `409 HUMAN_IN_CONTROL` |
+| 9 | 形态 B，受理时已能确定预计放出时刻（`runAfter`，§5 作息窗 / 速率）晚于截止时刻 | `409 PRESENCE_WINDOW_EXCEEDED`（不入队；0 号宪法 I-3「不得交出要等很久才放出的任务」） |
+| 10 | 形态 B，其余合法 | `202`；`authorization` / `presence_session_id` / `presence_ttl_secs` 与截止时刻落 `outbox` 行 |
+
+- **形态 B 不豁免 §5 节奏**：间隔 / 作息窗 / 速率硬顶照常适用（与撤销车道不同）。节奏把任务推过截止时刻的，按 §3 过期，
+  不放宽有效期。
+- **幂等（§2.2）照旧**：同一 `(account, idempotencyKey)` 重复下单返回原任务；不得用重复下单改写原任务的 `authorization`
+  或续期有效期（返回原任务即可，不新建、不改写）。
+- 拒绝时的响应体同 §2：`{ok:false, code:"<上表 code>", error:"…"}`。
+
 ---
 
 ## §3 任务状态机
@@ -142,6 +199,10 @@ queued ──(worker 认领)──> running ──成功──> done
    │        │    非幂等 (send_text/comment)   → failed  （park 交人,不重驱 GUI）
    │
    └──(HITL cancel)──> cancelled       ⚠️ cancel 仅 queued/deferred;running MUST NOT 撤（S4·R5）
+
+   形态 B（authorization="presence_parallel"，rev4）另有两条，均只作用于 queued/deferred:
+     过截止时刻仍未开始执行        → failed     （lastError="PRESENCE_EXPIRED"，不重试）
+     账号进入 HUMAN 态（渠道接管）  → cancelled  （lastError="HUMAN_TAKEOVER"，后端自行完成）
 ```
 
 | 状态 | 含义 | 终态 |
@@ -159,6 +220,16 @@ queued ──(worker 认领)──> running ──成功──> done
   - （后续优化留位：若后端能**证明** attempt 未真正发出——如失败发生在 GUI 发送键按下之前、有 pre-send intent marker 可判——才允许自动重试。**v1 不做此优化、不赌**。）
 - **`deferred → queued` 的 `maxAttempts` 内自动重试**是**同一已确认意图**的瞬时故障重试，性质不同、可接受；但非幂等 kind 缺省 `maxAttempts=1` 使其 at-most-once。
 
+- **形态 B 的两条转移（rev4）**：
+  - **有效期**：截止时刻 = 后端受理时刻 + `presence_ttl_secs`（§2.3）。worker **MUST NOT 在截止时刻之后开始执行**形态 B 任务
+    （认领前判定）；过期的 `queued`/`deferred` 任务转 `failed`、`lastError: "PRESENCE_EXPIRED"`，不重试、不自动转回形态 A。
+    要发，消费方带新幂等键按形态 A 重新下单（过逐条人审，同口径⑤）。`pause` 期间时钟照走：暂停跨过截止时刻的形态 B 任务，
+    `resume` 后不执行。
+  - **渠道接管**：账号进入 HUMAN 态（`control-and-voice.md §1`）时，后端 **MUST 立即**把该账号全部 `queued`/`deferred` 的
+    形态 B 任务转 `cancelled`、`lastError: "HUMAN_TAKEOVER"`（`control-and-voice.md §8.1` PP-4）。形态 A 任务照 §5 / 控制态
+    既有行为挂起、人走后继续，不受影响。`running` 的那一条照 R5 不可撤。
+  - 两条都是**朝不发的方向**收：形态 B 的任务只会被执行、过期或撤下，最迟在截止时刻之后不再执行。
+    **诚实记账**：「离场时刻」到「截止时刻」之间（至多 `presence_ttl_secs` ≤ `W`）仍有残余窗口，后端无从知道人已离场；这段窗口只能由消费方在离场时立即撤单（§0、§6）关闭。后端有效期是消费方撤单失灵时的上界，不是离场判定。
 - **`failed` 是 park 不是丢弃**：任务留在库里带 `lastError`，供人审后决定重下单或放弃（可逆/可追溯）。
 - **口径⑤（已定）**：`failed` 处置 = park + `lastError`，**无后端「原地重投」端点**（那会让 park 任务**绕过新一轮人审**再次外发 = HITL 旁路，禁）。重发 = 消费方**带新幂等键重新下单**（须再过人审）。
 
@@ -177,12 +248,23 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 - **`?idempotencyKey=` 查询（S1 新增）**：下单成功回 `id`，但若 AMR仁德 在「拿到 id」与「落库 id」之间崩溃，须能凭自己的幂等键回查结局，否则该任务无法 reconcile → 可能重复下单。
 - **`updatedSince` 增量游标（S1 新增）**：供 AMR仁德 高效增量对账、不每轮全表扫。
 
-任务对象（**PII 安全**：`target` 只回显 hash，`payload` 完全不回显；**回显 `account`** 供断言账号一致）：
+任务对象（**PII 安全**：`target` 只回显 hash，`payload` 完全不回显；**回显 `account`** 供断言账号一致；
+**rev4：回显 `authorization`**（缺省任务回 `"human_confirmed"`），形态 B 另回显 `presence_session_id` 与 `presenceDeadline`
+（后端截止时刻，毫秒，后端时钟），供消费方把执行结果关联回在场审计记录）：
 ```json
 { "id":"b1e4…", "account":"wxid_selfaccount_28", "kind":"send_text", "status":"done",
   "targetHash":"5ab899b8ecbe", "attempts":1, "maxAttempts":1,
-  "lastError":null, "runAfter":0,
+  "lastError":null, "runAfter":0, "authorization":"human_confirmed",
   "createdAt":1784600000000, "updatedAt":1784600042000, "executedAt":1784600042000 }
+```
+形态 B 的任务对象（rev4）：
+```json
+{ "id":"c7d2…", "account":"wxid_selfaccount_28", "kind":"send_text", "status":"queued",
+  "targetHash":"5ab899b8ecbe", "attempts":0, "maxAttempts":1,
+  "lastError":null, "runAfter":0,
+  "authorization":"presence_parallel", "presence_session_id":"ps_test_0001",
+  "presenceDeadline":1784600300000,
+  "createdAt":1784600000000, "updatedAt":1784600000000, "executedAt":null }
 ```
 
 **(b) 回调 webhook —— 否决（不做）**：反转依赖（后端主动外呼 AMR仁德）引入鉴权/重试/失败堆积 + 耦合 AMR仁德 可达性；HITL 系统里人本在看，(b) 省下的亚-poll 时延不抵新增攻击面。且状态可经 (a) 查询，(b) 永远只可能是 (a) 之上的优化、非替代。
@@ -221,12 +303,14 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 
 | 端点 | 用途 |
 |---|---|
-| `POST /api/outbox/{id}/cancel` | 撤单（次级兜底，非主闸）。**语义无歧义（R5）**：`queued`/`deferred` **MUST 可撤**；`running` **MUST NOT 撤**——明确拒绝（返错），**不做 best-effort 尝试**（撤一个正驱 GUI 的任务 = 半发风险）。仅在队列有深度/作息窗延迟时,`cancel` 才有机会赶在 `running` 之前生效。 |
+| `POST /api/outbox/{id}/cancel` | 撤单（次级兜底，非主闸）。**语义无歧义（R5）**：`queued`/`deferred` **MUST 可撤**；`running` **MUST NOT 撤**——明确拒绝（返错），**不做 best-effort 尝试**（撤一个正驱 GUI 的任务 = 半发风险）。仅在队列有深度/作息窗延迟时,`cancel` 才有机会赶在 `running` 之前生效。**rev4：对声明 `presence_parallel: true` 的后端，本端点为 MUST（§7.1）**——形态 B 依赖它在离场时撤下未执行的任务（0 号宪法 I-3 / I-6）。 |
 | `POST /api/outbox/pause` | **全局急停**出站（worker 继续 tick，但不认领任务） |
 | `POST /api/outbox/resume` | 恢复 |
 | `GET /api/outbox?status=queued` | 已确认待放清单（运行态可见，非人审闸本身） |
 
 - **`pause` 是人的急停闸**：出任何异常（风控告警 / 内容出错 / 账号异常）先 `pause`，队列不丢。**（rev3·SF1：`pause` 硬化为 MUST 不变式，见 §7.1——任何实现都 MUST 给人可用的全局急停，不得报 `pause:false`；与 `cancel` 不同,`cancel` 保留可降级。）**
+- **形态 B 的撤单是主路径之一（rev4）**：对形态 A，`cancel` 是次级兜底；对形态 B，「在场一结束即撤下未执行的任务」是 0 号宪法
+  I-3 的 MUST，`cancel` 是它的执行手段，后端的有效期（§3）与渠道接管撤单（§3）是它的后端侧兜底。
 - 暂停期间 worker **仍然活着**（§7.2 `paused` 与 `alive` 分开报），便于区分「人为停」与「卡死」。
 - **留痕交叉引用（建议2）**：端到端可追溯 = **人审决策留痕在消费方侧**（AMR仁德 `log_event`，谁/何时确认）+ **后端执行留痕**（每次 GUI 动作的执行结果/时刻/`lastError` 落 `outbox` 行,`pause`/`cancel`/紧急越权亦留痕）。两段拼起来才是完整的「谁批的 → 何时发的 → 结果如何」链条。
 
@@ -242,11 +326,25 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 ```
 （`receipt` = `["poll"]`（§4 定案）；未实现的能力报 `false` / 不列。）
 
+rev4 起可多一项（opt-in，缺省 = 不列 = `false`）：
+```json
+{ "outbox": { "...": "同上", "cancel": true, "presence_parallel": true } }
+```
+
+**`presence_parallel`（rev4 · opt-in 能力位）**：声明 `true` = 本后端承诺对本账号：
+1. 按 §2.3 受理 / 拒绝形态 B 下单，并把 `authorization` / `presence_session_id` / `presence_ttl_secs` / 截止时刻落 `outbox` 行、在回执回显（§4）；
+2. 执行形态 B 的有效期与渠道接管撤单（§3）；
+3. **`cancel` 为 MUST**：声明 `presence_parallel: true` 而 `cancel` 不为 `true` = **违约**，消费方 **MUST 不以形态 B 下单**（形态 A 不受影响）；
+4. 满足 `control-and-voice.md §8.1` PP-2（该账号全部驱动 GUI 的写动作由同一互斥锁串行化）与 PP-3（`control.state: true`）。
+
+未声明（或声明 `false`）的后端：本契约对它的要求与 rev3 **一字不变**，消费方对它只用形态 A。能力位按账号读（一实例一账号，§2）。
+
+
 **⚠️ `account` 不是可选能力位（rev2·R4 收口）**：`account` 维度 + `WRONG_ACCOUNT` 硬校验是**强制不变式（MUST）**，账号守恒是 0 号宪法铁律 5，**不受 capabilities 声明影响**——`"account"` 在此**恒为 `true`**，仅作可发现性回显，**不是一个可被降级的开关**。若某实现**报 `account:false` 或不做 `WRONG_ACCOUNT` 校验**，即为**违约**，消费方 **MUST 拒绝对其下单**（不得靠字符串巧合放行）。这条堵死「用一句 `account:false` 合法降级掉账号守恒」的口子。
 
 **⚠️ `pause` 是不可降级的急停闸（rev3·SF1 收口）**：`pause`（全局急停，§6）与 `account` 同列**强制不变式（MUST）**——它是人的**紧急刹车**，HITL 一等（§1.8/§8）+ 0 号宪法「人在回路」的落点。`"pause"` 在此**恒为 `true`**，仅作可发现性回显，**不是一个可被降级的开关**。若某实现**报 `pause:false` 或不提供可用的全局急停**，即为**违约**，消费方 **MUST 拒绝对其下单**——一个「停不下来」的出站后端不得被允许对外发送。这条堵死「一句 `pause:false` 让人失去急停闸」的口子。
 
-**↔ 对比 `cancel`（rev3·SF1 明确不硬化）**：`cancel`（§6·撤单）是**次级兜底、非主 HITL 闸**（主闸在上游人审确认，§0/§1.8），且 R5 已约束其语义（`running` 不可撤）。故 `cancel` **保留为普通能力位**（可声明 `false`）——实现未提供撤单时消费方**优雅降级**（隐藏撤单入口，靠上游人审 + `pause` 兜底），**不升格 MUST**，避免过度约束未来实现。二者的区分标准 = **「缺了它人是否失去安全底线」**:缺 `pause` = 人没了急停刹车(致命)→ MUST;缺 `cancel` = 还有上游人审 + pause(可接受)→ 可选。
+**↔ 对比 `cancel`（rev3·SF1 明确不硬化；rev4 例外见上方 `presence_parallel` 第 3 条）**：`cancel`（§6·撤单）是**次级兜底、非主 HITL 闸**（主闸在上游人审确认，§0/§1.8），且 R5 已约束其语义（`running` 不可撤）。故 `cancel` **保留为普通能力位**（可声明 `false`）——实现未提供撤单时消费方**优雅降级**（隐藏撤单入口，靠上游人审 + `pause` 兜底），**不升格 MUST**，避免过度约束未来实现。二者的区分标准 = **「缺了它人是否失去安全底线」**:缺 `pause` = 人没了急停刹车(致命)→ MUST;缺 `cancel` = 还有上游人审 + pause(可接受)→ 可选。
 
 ### 7.2 worker 活性 + 排空可观测（S3）
 `GET /api/health/deep` 内：
@@ -273,6 +371,7 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 | ④ | 节奏/配额是否暴露消费端 | **暴露只读可观测；硬限留服务端；策略另立 `send-policy` #19** | §5 |
 | ⑤ | `failed` 处置 | **park + lastError；无后端重投端点；重发 = 新幂等键重新下单（过人审）** | §3 |
 | ⑥ | 多账号 | **per-account + `account` 字段（回执回显）+ 硬校验无跨账号 + 一实例一账号不变式** | §2 |
+| ⑦ | 在场并行的确认形态（rev4） | **形态 B 合法，但仅限：`send_text` + 后端已 opt-in `presence_parallel` + `cancel` 为 MUST + 每条带 `presence_session_id` 与 `presence_ttl_secs`；判定责任在消费方，后端留痕 / 拒绝 / 执行有效期与渠道接管撤单** —— 待 PD仁德 确认 | §0 / §2.3 / §3 / §7.1 |
 
 ---
 
@@ -289,6 +388,7 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 | health | **rev1 待做**：加 `oldest_queued_age_secs` / `last_completed_age_secs`（S3） |
 | 回执 | **rev1 待做**：`?idempotencyKey=` + `updatedSince`（S1） |
 | 已部署 | `http://192.168.31.28:6174`，worker 实测 `alive:true`；**历史零任务**——消费方尚未切换 |
+| presence_parallel | **rev4 待做（opt-in，不做即维持现状）**：`outbox` 行加 `authorization` / `presence_session_id` / `presence_ttl_secs` / 截止时刻列 · §2.3 受理判定 · 认领前截止判定 + 过期转 `failed` · HUMAN 态立即撤形态 B 任务 · `cancel` 端点就绪 · 同步端点与 worker 共用同一 GUI 互斥锁（`control-and-voice.md §8.1` PP-2）· 全部就绪后才在 capabilities 报 `presence_parallel: true` |
 
 ---
 
@@ -298,5 +398,9 @@ GET /api/outbox?status=&updatedSince=&limit=  → { ok, tasks:[…] }   # 增量
 2. PD仁德 按定案补齐后端：B2 account 维度 / B3 按 kind 分流 / S1 回执查询 / S3 health 指标 / S5 幂等窗口。
 3. **AMR仁德 侧切换**：出站从同步端点改为 `POST /api/outbox`，下单体填 `account`（会话所属账号），按 §4 (a) 取回执、断言 `回执.account == 下单.account`。**灰度**：先切 `like_moment`（幂等、误发无实质外发伤害）验链路；**切 `send_text` 前 B1/B2/B3 + S3（worker 活性并进 `api_send_readiness`）必须先落地**。
 4. **同步端点保留**（现有行为不变，additive）——两条路并存一段，切换可回退。
+5. **在场并行（rev4，可选）**：前置 = 第 3 步的 `send_text` 已切到 outbox 并稳定。PD仁德 完成 §9 `presence_parallel` 一行并真机验
+   （HUMAN 态撤单、过期不执行、同步端点与 worker 互斥）后才报能力位；AMR仁德 按 0 号宪法 I-1…I-6 实现在场判定并按 §0 完成
+   形态 B 准入声明后，才以形态 B 下单。任一侧撤回，回到形态 A，不影响既有发送。
 
 — **PD仁德** 起草 2026-07-21 · rev1 据 AMR仁德 对抗审改 2026-07-22 · 待 AMR仁德 复核 diff
+— **AMR仁德** rev4（v1.1）据 0 号宪法 v2.1「在场并行」节起草 2026-10-11 · **待 PD仁德 确认**（本 rev 新增的后端义务全部在 §2.3 / §3 / §7.1 / §9）

@@ -1,0 +1,24 @@
+{
+  "case": "enqueue_unknown_authorization",
+  "check": "enqueue",
+  "rule": "outbox/dispatch.md v1.1 §2.3",
+  "description": "authorization 不在枚举",
+  "input": {
+    "caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "request": {
+      "kind": "send_text",
+      "authorization": "auto"
+    },
+    "control_state": "agent",
+    "run_after_beyond_deadline": false
+  },
+  "expected": {
+    "status": 400,
+    "code": "BAD_AUTHORIZATION"
+  }
+}

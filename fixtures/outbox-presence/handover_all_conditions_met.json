@@ -1,0 +1,25 @@
+{
+  "case": "handover_all_conditions_met",
+  "check": "handover",
+  "rule": "outbox/dispatch.md v1.1 §0 / §7.1 + control-and-voice.md §8.1 PP-2…PP-5",
+  "description": "能力位齐、AGENT 态、宪法 I-3 判可按 parallel 交出、经 outbox → 形态 B",
+  "input": {
+    "outbox_caps": {
+      "account": true,
+      "pause": true,
+      "cancel": true,
+      "presence_parallel": true
+    },
+    "control_caps": {
+      "state": true,
+      "push": true,
+      "authored_by": true
+    },
+    "control_state": "agent",
+    "constitution_item_parallel": true,
+    "via_outbox": true
+  },
+  "expected": {
+    "form": "presence_parallel"
+  }
+}
