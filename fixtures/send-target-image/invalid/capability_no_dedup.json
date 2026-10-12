@@ -1,0 +1,13 @@
+{
+  "type": "capability",
+  "body": {
+    "send": {
+      "image": {
+        "mimes": [
+          "image/png"
+        ],
+        "max_bytes": 10485760
+      }
+    }
+  }
+}

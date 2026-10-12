@@ -1,0 +1,10 @@
+{
+  "type": "response",
+  "body": {
+    "ok": false,
+    "chat_id": "wxid_test_zhangsan",
+    "opened": false,
+    "code": "INVALID_IMAGE",
+    "error": "magic bytes 与 mimeType 不一致"
+  }
+}

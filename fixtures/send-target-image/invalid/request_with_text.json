@@ -1,0 +1,11 @@
+{
+  "type": "request",
+  "body": {
+    "chatId": "wxid_test_zhangsan",
+    "text": "配文",
+    "image": {
+      "mimeType": "image/png",
+      "data": "iVBORw0KGgoAAAANSUhEUgABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
+    }
+  }
+}

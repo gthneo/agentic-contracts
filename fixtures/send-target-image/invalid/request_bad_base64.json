@@ -1,0 +1,10 @@
+{
+  "type": "request",
+  "body": {
+    "chatId": "wxid_test_zhangsan",
+    "image": {
+      "mimeType": "image/png",
+      "data": "@@not-base64@@"
+    }
+  }
+}
