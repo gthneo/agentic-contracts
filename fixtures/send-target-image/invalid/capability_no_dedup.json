@@ -4,9 +4,14 @@
     "send": {
       "image": {
         "mimes": [
-          "image/png"
+          "image/jpeg",
+          "image/png",
+          "image/gif"
         ],
-        "max_bytes": 10485760
+        "max_bytes": 20971520,
+        "dedup": null,
+        "idempotency": true,
+        "max_runtime_ms": 300000
       }
     }
   }

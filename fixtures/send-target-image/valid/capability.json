@@ -8,8 +8,10 @@
           "image/png",
           "image/gif"
         ],
-        "max_bytes": 10485760,
-        "dedup": "sha256"
+        "max_bytes": 20971520,
+        "dedup": "sha256",
+        "idempotency": true,
+        "max_runtime_ms": 300000
       }
     }
   }

@@ -2,10 +2,12 @@
   "type": "request",
   "body": {
     "chatId": "wxid_test_zhangsan",
-    "text": "配文",
+    "idempotencyKey": "amr-img-42-9f3c0e7a1b2d4c5e6f708192",
     "image": {
       "mimeType": "image/png",
-      "data": "iVBORw0KGgoAAAANSUhEUgABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
-    }
+      "data": "iVBORw0KGgoAAAANSUhEUgABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f",
+      "sha256": "de1075dc4f7d4a88863f7efbca13c7c54ef64ee9b532ade8be3c82bf1d11f1d5"
+    },
+    "text": "配文"
   }
 }

@@ -1,0 +1,10 @@
+{
+  "type": "lookup",
+  "body": {
+    "chatId": "wxid_test_zhangsan",
+    "sha256": "de1075dc4f7d4a88863f7efbca13c7c54ef64ee9b532ade8be3c82bf1d11f1d5",
+    "receivedAt": 1791000000,
+    "state": "sent",
+    "sentAt": 1791000012
+  }
+}

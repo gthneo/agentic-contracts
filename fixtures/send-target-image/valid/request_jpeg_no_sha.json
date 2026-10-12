@@ -2,6 +2,7 @@
   "type": "request",
   "body": {
     "chatId": "wxid_test_lisi",
+    "idempotencyKey": "amr-img-43-x",
     "image": {
       "mimeType": "image/jpeg",
       "data": "/9j/4AABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"

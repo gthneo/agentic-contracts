@@ -1,0 +1,18 @@
+{
+  "type": "capability",
+  "body": {
+    "send": {
+      "image": {
+        "mimes": [
+          "image/jpeg",
+          "image/png",
+          "image/gif"
+        ],
+        "max_bytes": 20971520,
+        "dedup": "sha256",
+        "idempotency": false,
+        "max_runtime_ms": 300000
+      }
+    }
+  }
+}
