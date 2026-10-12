@@ -1,0 +1,6 @@
+{
+  "type": "lookup_miss",
+  "body": {
+    "error": "not found"
+  }
+}

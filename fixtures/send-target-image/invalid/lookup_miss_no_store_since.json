@@ -1,0 +1,6 @@
+{
+  "type": "lookup_miss",
+  "body": {
+    "code": "KEY_NOT_FOUND"
+  }
+}

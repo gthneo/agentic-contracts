@@ -210,17 +210,27 @@ def validate_image_send(obj: object) -> list[str]:
         st = body.get("state")
         if st not in LOOKUP_STATES:
             viol.append(f"state {st!r} not in {sorted(LOOKUP_STATES)} (§6.4-2)")
-        if not (isinstance(body.get("chatId"), str) and body["chatId"]):
-            viol.append("chatId must be a non-empty string (§6.4-2)")
+        for camel in ("chatId", "receivedAt", "sentAt"):
+            if camel in body:
+                viol.append(f"{camel} must be snake_case in responses (§2.1-2 · C3)")
+        if not (isinstance(body.get("chat_id"), str) and body["chat_id"]):
+            viol.append("chat_id must be a non-empty string (§6.4-2)")
         sha = body.get("sha256")
         if not (isinstance(sha, str) and len(sha) == 64 and all(c in "0123456789abcdef" for c in sha)):
             viol.append("sha256 must be 64 lowercase hex chars (§6.4-2)")
-        if not isinstance(body.get("receivedAt"), int):
-            viol.append("receivedAt must be an int (§6.4-2)")
-        if st == "sent" and not isinstance(body.get("sentAt"), int):
-            viol.append("a sent record carries sentAt (§6.4-2)")
+        if not isinstance(body.get("received_at"), int):
+            viol.append("received_at must be Unix seconds (int) (§6.4-2 · C4)")
+        if st == "sent" and not isinstance(body.get("sent_at"), int):
+            viol.append("a sent record carries sent_at (Unix seconds) (§6.4-2)")
         if st in ("not_sent", "unknown") and body.get("code") not in IMAGE_FAIL_CODES:
             viol.append("a not_sent / unknown record carries its failure code (§6.4-2)")
+    elif t == "lookup_miss":
+        if body.get("code") != "KEY_NOT_FOUND":
+            viol.append('a lookup 404 must carry code "KEY_NOT_FOUND" (§6.4-2 · C2)')
+        if not isinstance(body.get("store_since"), int):
+            viol.append("a lookup 404 must carry store_since (Unix seconds) (§6.4-2 · C2)")
+        if "instance" in body and not isinstance(body["instance"], str):
+            viol.append("instance must be a string when present (§6.4-2)")
     elif t == "capability":
         img = ((body.get("send") or {}).get("image")) if isinstance(body.get("send"), dict) else None
         if not isinstance(img, dict):
@@ -235,6 +245,8 @@ def validate_image_send(obj: object) -> list[str]:
             viol.append('send.image.dedup must be "sha256" (§6.4-1)')
         if img.get("idempotency") is not True:
             viol.append("send.image.idempotency must be true (§6.4-2 / §6.6)")
+        if "instance" in img and not (isinstance(img["instance"], str) and img["instance"]):
+            viol.append("send.image.instance must be a non-empty string when present (§6.4-2)")
         mr = img.get("max_runtime_ms")
         if not (isinstance(mr, int) and mr > 0):
             viol.append("send.image.max_runtime_ms must be a positive int (§6.2-4)")

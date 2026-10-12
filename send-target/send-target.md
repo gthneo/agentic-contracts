@@ -172,16 +172,28 @@
    12 秒内同键已成功 → 返回 `ok:true` **且带 `"deduped": true`**（让调用方知道这次没真发）；同键仍在执行 → `ok:false` + `SEND_IN_FLIGHT`。
    发前失败时清掉该键的 12 秒记录。
 2. **调用方幂等键 + 查询端点（方案 A，主防线）**：
-   - 后端 **MUST** 在任何界面动作**之前**把 `idempotencyKey → {state, chatId, sha256, receivedAt, sentAt?, code?}` **持久**记下
-     （后端重启不丢），保留**至少 24 小时**。`state ∈ in_flight / sent / not_sent / unknown`
-     （`unknown` = 后端自己也说不清，即返回过 `SEND_UNCONFIRMED`）。
+   - **记键的时机（C1）**：后端收到请求、解析出 `idempotencyKey` 之后，**在等发送锁之前、在任何界面动作之前**，就把
+     `idempotencyKey → {state, chat_id, sha256, received_at, sent_at?, code?, instance?}` **持久**记下（后端重启不丢），
+     保留**至少 24 小时**。`state ∈ in_flight / sent / not_sent / unknown`（`unknown` = 后端自己也说不清，即返回过
+     `SEND_UNCONFIRMED`）。所有时刻字段都是 **Unix 秒（整数）**（C4）。
+   - **墓碑（C1）**：查询一个**没见过**的键时，后端 **MUST** 同时为它写一条墓碑（`not_sent`，终态）；之后任何带这个键的 POST
+     （包括「查询时还在路上、晚到的那一次」）**MUST NOT 发送**，回 `ok:false` + `INVALID_REQUEST`。这样「查不到」与
+     「晚到的请求又发了出去」不会同时成立 —— 404 才真能当「确定没发出」。
    - **同一个键再来一次 POST**：键为 `in_flight` / `sent` / `unknown` → **MUST NOT 再发**，原样回记下的结果并带 `"idempotent": true`
-     （`sent` → `ok:true`；`in_flight` → `SEND_IN_FLIGHT`；`unknown` → `SEND_UNCONFIRMED`）；键为 `not_sent` → 可以按这次请求再试一次。
-     同一个键但 `chatId` / `sha256` 不同 → `INVALID_REQUEST`。
-   - **查询端点** `GET /api/messages/send/{idempotencyKey}`（与发送同一套鉴权）→ `200 {state, chatId, sha256, receivedAt, sentAt?, code?}`；
-     **`404` = 后端从没见过这个键 = 确定没发出**（正因为键在任何界面动作之前就已持久记下）。超过保留期的键可以 `404`，
-     所以调用方 **MUST NOT** 把保留期之外的 `404` 当成「没发出」。
-   - 能力位 `send.image.idempotency: true` 声明本条已实现。
+     （`sent` → `ok:true`；`in_flight` → `SEND_IN_FLIGHT`；`unknown` → `SEND_UNCONFIRMED`）；键为 `not_sent`（含墓碑）→
+     **也不再发**，回 `ok:false` + 记下的码（新的一次尝试用新的键）。同一个键但 `chatId` / `sha256` 不同 → `INVALID_REQUEST`。
+   - **后端重启（C4）**：重启时仍是 `in_flight` 的键 **MUST** 改记为 `unknown`（后端说不清回车按没按）；只有能证明还没开始任何界面动作的，
+     才可记为 `not_sent`。
+   - **查询端点** `GET /api/messages/send/{idempotencyKey}`（与发送同一套鉴权；响应字段 snake_case，与 §2.1-2 一致 · C3）：
+     - 见过 → `200 {"state", "chat_id", "sha256", "received_at", "sent_at"?, "code"?, "instance"?}`；
+       `sent` **MUST** 带 `sent_at`，`not_sent` / `unknown` **MUST** 带 `code`。
+     - 没见过 → **带类型的 404**（C2）：`404 {"code": "KEY_NOT_FOUND", "store_since": <Unix 秒>, "instance"?: "…"}`。
+       `store_since` = 这份键记录**从何时起是完整的**（存储创建 / 最近一次被清空的时刻）。
+     - **只有**带类型的 404 才表示「没见过这个键」；路由不在、老后端、网关回的 404 都不带这个体，消费方 **MUST** 当「不知道」。
+   - **消费方怎么认 404**：只有同时满足以下几条才当「确定没发出」 —— 带类型；`store_since` 早于这一次发送尝试的开始
+     （再留时钟余量）；已过了后端对这一次声明的最长运行时间（`max_runtime_ms`）；仍在 24 小时保留期内；且只问**收到那一次请求的
+     那个后端**（地址与 `instance` 都对得上）。其余一律「结果未知」。
+   - 能力位 `send.image.idempotency: true` 声明本条已实现；`send.image.instance`（可选）是这份键存储的实例号，存储换了就换。
 3. **为什么选 A 而不是 #36 异步下单**：#36（`outbox/dispatch.md`）还没上线；方案 A 在现有同步端点上补齐「结果未知可以查」，
    改动面最小、AMR 与后端都能独立验证。**迁移说明**：#36 上线后，图片发送迁到异步下单新增 `kind: send_image`，
    下单的幂等键沿用本节同一套语义（同键不重发、按键查结果）；迁移后本节的同步端点保留为过渡兼容。
@@ -192,8 +204,10 @@
 - **账号守恒**：只经会话所属账号的后端与凭据发；账号没配后端或凭据就是发不了，**不回落**到别的后端或默认凭据。
 - **按 §6.3 判结果**：只有「请求没完整送出」（连不上 / 送体中途断）、HTTP 4xx、§2.1 发前失败码才判「确定没发出」；
   其余（`SEND_UNCONFIRMED`、`SEND_FAILED`、不带码、认不出的码、超时、5xx、看不懂的响应）→ **结果未知**，**不自动重发**。
-- **结果未知怎么了结**：后端声明 `send.image.idempotency` → 按键查询（`sent` → 已提交；`404` / `not_sent` → 确定没发出；
-  其余仍交人）；否则交人核对。
+- **结果未知怎么了结**：后端声明 `send.image.idempotency` → 只向**收到那一次请求的那个后端**按键查询：`sent` → 已提交（随时可认）；
+  `not_sent` 记录或带类型的 404 → 确定没发出，**但只在过了后端声明的最长运行时间之后才认**，404 另须满足 §6.4-2 的条件；
+  `in_flight` → 仍在发，人不能标「没发出」；其余（不带类型的 404、查不到、`unknown`）→ 仍交人。查询要有节流与预算，不得拖住收消息。
+  后端没声明该能力 → 不发图片（fail closed）。
 - **重发规则**（与 AMR 实现一致）：
   - **在飞挡死**：同一张图还在发（调用方还在等回话），或没等到回话、且还没过后端最长运行时间 → 不许再发，原因也越不过。
   - **结果未知可越过、须写原因并留痕**：后端回了话但说不清的，或已过后端最长运行时间的；以及刚发过、被人核对为「没发出」的同一张图。
@@ -208,7 +222,8 @@
 
 ```json
 { "send": { "image": { "mimes": ["image/jpeg","image/png","image/gif"], "max_bytes": 20971520,
-                       "dedup": "sha256", "idempotency": true, "max_runtime_ms": 300000 } } }
+                       "dedup": "sha256", "idempotency": true, "max_runtime_ms": 300000,
+                       "instance": "pdwx-store-2026-10-12" } } }
 ```
 
 - 后端声明 `send.image` = 承诺 §6.1–§6.4 全部做到；`dedup` **MUST** 为 `"sha256"`；`idempotency` **MUST** 为 `true`
@@ -222,7 +237,8 @@
 - 白名单外类型、base64 错：现状静默处理 → 本节 `INVALID_IMAGE`。
 - 回车后确认失败：现状 `ok:false` 不带码 → 本节 `SEND_UNCONFIRMED`。
 - 等锁超预算：现状无限期排队 → 本节 `SEND_BUSY`；调用方断开：现状照发 → 本节不再发。
-- 新增：请求字段 `idempotencyKey`、查询端点 `GET /api/messages/send/{idempotencyKey}`、响应字段 `deduped` / `idempotent`。
+- 新增：请求字段 `idempotencyKey`、查询端点 `GET /api/messages/send/{idempotencyKey}`（含带类型的 404 与墓碑）、
+  响应字段 `deduped` / `idempotent`。
 - 已知调用方：**AMR**（#287，只在后端声明 `send.image` 后才发，且从不同发 image+text）。powerdata-wx 自身的界面 / MCP 工具若也调这个端点
   发图片，**PD仁德 须在切换前核对**（本仓无法看到所有调用方）。文本请求（无 `image`）的行为**不变**。
 - 版本：契约文本 v1 → v1.1；兼容性由能力位 `send.image` 承担 —— 未声明的后端保持旧行为、消费方不对它发图片。
@@ -231,7 +247,8 @@
 
 `fixtures/send-target-image/valid/*.json` 必须全部通过、`invalid/*.json` 必须每条都被判出至少一处违规；两个目录都**不得为空**
 （`scripts/conformance.py`）。夹具覆盖：请求（类型 / base64 / 魔数 / 大小 / sha256 / 幂等键 / 不与 text 同发）、
-响应（发前失败码 / `SEND_UNCONFIRMED` / 成功不带码 / `deduped`）、查询结果（四种 state）、能力声明（`dedup` / `idempotency` / `max_runtime_ms`）。
+响应（发前失败码 / `SEND_UNCONFIRMED` / 成功不带码 / `deduped`）、查询结果（四种 state，snake_case，时刻为 Unix 秒）、
+带类型的 404（`KEY_NOT_FOUND` + `store_since`）、能力位（`dedup` / `idempotency` / `max_runtime_ms`）。
 
 ---
 

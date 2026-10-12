@@ -11,7 +11,8 @@
         "max_bytes": 20971520,
         "dedup": "sha256",
         "idempotency": true,
-        "max_runtime_ms": 300000
+        "max_runtime_ms": 300000,
+        "instance": "pdwx-store-2026-10-12"
       }
     }
   }
