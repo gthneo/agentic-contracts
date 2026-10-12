@@ -188,9 +188,11 @@ def validate_image_send(obj: object) -> list[str]:
             viol.append(f"decoded size {len(data)} > {IMAGE_MAX_BYTES} (§6.1-3)")
         if mime in IMAGE_MAGIC and not data.startswith(IMAGE_MAGIC[mime]):
             viol.append("magic bytes do not match mimeType → INVALID_IMAGE (§6.1-1)")
-        key = body.get("idempotencyKey")
-        if not (isinstance(key, str) and IDEM_KEY_RE.match(key)):
-            viol.append("idempotencyKey must be 1-64 chars of [A-Za-z0-9._:-] (§6.1-6)")
+        # D1 = b(班迪 2026-10-12):键可选;给了就必须合规
+        if "idempotencyKey" in body:
+            key = body.get("idempotencyKey")
+            if not (isinstance(key, str) and IDEM_KEY_RE.match(key)):
+                viol.append("idempotencyKey must be 1-64 chars of [A-Za-z0-9._:-] (§6.1-6)")
         if "sha256" in img and img["sha256"] != hashlib.sha256(data).hexdigest():
             viol.append("sha256 does not match decoded bytes → INVALID_IMAGE (§6.1-5)")
     elif t == "response":
