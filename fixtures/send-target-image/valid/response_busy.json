@@ -1,0 +1,10 @@
+{
+  "type": "response",
+  "body": {
+    "ok": false,
+    "chat_id": "wxid_test_zhangsan",
+    "opened": false,
+    "code": "SEND_BUSY",
+    "error": "等发送锁超过预算,没有开始发"
+  }
+}

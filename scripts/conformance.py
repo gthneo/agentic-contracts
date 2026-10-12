@@ -142,6 +142,121 @@ def validate_rich_file(obj: object) -> list[str]:
     return viol
 
 
+# send-target/send-target.md §6（发图片）：请求 / 响应 / 能力声明三种夹具。
+IMAGE_MIMES = frozenset({"image/jpeg", "image/png", "image/gif"})
+IMAGE_MAX_BYTES = 20 * 1024 * 1024        # §6.1-3:班迪 2026-10-12 定 20 MiB
+IMAGE_MAGIC = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1a\n",),
+               "image/gif": (b"GIF87a", b"GIF89a")}
+# §6.3：发前失败码（确定没发出）+ 发后未确认。成功响应不带码。
+IMAGE_PRESEND_CODES = frozenset({"CONTACT_NOT_FOUND", "AMBIGUOUS", "NOT_LOGGED_IN", "SEND_IN_FLIGHT",
+                                 "SEND_BUSY",
+                                 "INVALID_IMAGE", "INVALID_REQUEST", "SEND_FAILED_PRESEND"})
+IMAGE_FAIL_CODES = IMAGE_PRESEND_CODES | {"SEND_UNCONFIRMED"}
+
+
+IDEM_KEY_RE = __import__("re").compile(r"^[A-Za-z0-9._:-]{1,64}$")   # §6.1-6
+LOOKUP_STATES = frozenset({"in_flight", "sent", "not_sent", "unknown"})   # §6.4-2
+
+
+def validate_image_send(obj: object) -> list[str]:
+    """§6 夹具 → 违规列表（[] = 合规）。夹具形如 {"type": request|response|capability, "body": {...}}。"""
+    import base64
+    import binascii
+    import hashlib
+    if not isinstance(obj, dict) or not isinstance(obj.get("body"), dict):
+        return ["fixture must be {type, body:{...}}"]
+    t, body = obj.get("type"), obj["body"]
+    viol: list[str] = []
+    if t == "request":
+        if not (isinstance(body.get("chatId"), str) and body["chatId"]):
+            viol.append("chatId must be a non-empty string (§6.1)")
+        if "text" in body or "file" in body:
+            viol.append("image must not be combined with text/file → INVALID_REQUEST (§6.1-4)")
+        img = body.get("image")
+        if not isinstance(img, dict):
+            return viol + ["image must be an object (§6.1)"]
+        mime = img.get("mimeType")
+        if mime not in IMAGE_MIMES:
+            viol.append(f"mimeType {mime!r} not in {sorted(IMAGE_MIMES)} (§6.1-1)")
+        try:
+            data = base64.b64decode(img.get("data") or "", validate=True)
+        except (binascii.Error, ValueError, TypeError):
+            return viol + ["data is not standard base64 → INVALID_IMAGE (§6.1-2)"]
+        if not data:
+            viol.append("data decodes to empty (§6.1)")
+        if len(data) > IMAGE_MAX_BYTES:
+            viol.append(f"decoded size {len(data)} > {IMAGE_MAX_BYTES} (§6.1-3)")
+        if mime in IMAGE_MAGIC and not data.startswith(IMAGE_MAGIC[mime]):
+            viol.append("magic bytes do not match mimeType → INVALID_IMAGE (§6.1-1)")
+        # D1 = b(班迪 2026-10-12):键可选;给了就必须合规
+        if "idempotencyKey" in body:
+            key = body.get("idempotencyKey")
+            if not (isinstance(key, str) and IDEM_KEY_RE.match(key)):
+                viol.append("idempotencyKey must be 1-64 chars of [A-Za-z0-9._:-] (§6.1-6)")
+        if "sha256" in img and img["sha256"] != hashlib.sha256(data).hexdigest():
+            viol.append("sha256 does not match decoded bytes → INVALID_IMAGE (§6.1-5)")
+    elif t == "response":
+        if not isinstance(body.get("ok"), bool):
+            viol.append("ok must be a bool (§2.1)")
+        if not (isinstance(body.get("chat_id"), str) and body["chat_id"]):
+            viol.append("chat_id must be a non-empty string (§2.1)")
+        if body.get("ok") is True and "code" in body:
+            viol.append("a successful response carries no code (§2.1)")
+        for flag in ("deduped", "idempotent", "opened"):
+            if flag in body and not isinstance(body[flag], bool):
+                viol.append(f"{flag} must be a bool when present (§6.4)")
+        if body.get("ok") is False and body.get("code") not in IMAGE_FAIL_CODES:
+            viol.append(f"failure code {body.get('code')!r} must be a pre-send code or "
+                        f"SEND_UNCONFIRMED (§6.3)")
+    elif t == "lookup":
+        st = body.get("state")
+        if st not in LOOKUP_STATES:
+            viol.append(f"state {st!r} not in {sorted(LOOKUP_STATES)} (§6.4-2)")
+        for camel in ("chatId", "receivedAt", "sentAt"):
+            if camel in body:
+                viol.append(f"{camel} must be snake_case in responses (§2.1-2 · C3)")
+        if not (isinstance(body.get("chat_id"), str) and body["chat_id"]):
+            viol.append("chat_id must be a non-empty string (§6.4-2)")
+        sha = body.get("sha256")
+        if not (isinstance(sha, str) and len(sha) == 64 and all(c in "0123456789abcdef" for c in sha)):
+            viol.append("sha256 must be 64 lowercase hex chars (§6.4-2)")
+        if not isinstance(body.get("received_at"), int):
+            viol.append("received_at must be Unix seconds (int) (§6.4-2 · C4)")
+        if st == "sent" and not isinstance(body.get("sent_at"), int):
+            viol.append("a sent record carries sent_at (Unix seconds) (§6.4-2)")
+        if st in ("not_sent", "unknown") and body.get("code") not in IMAGE_FAIL_CODES:
+            viol.append("a not_sent / unknown record carries its failure code (§6.4-2)")
+    elif t == "lookup_miss":
+        if body.get("code") != "KEY_NOT_FOUND":
+            viol.append('a lookup 404 must carry code "KEY_NOT_FOUND" (§6.4-2 · C2)')
+        if not isinstance(body.get("store_since"), int):
+            viol.append("a lookup 404 must carry store_since (Unix seconds) (§6.4-2 · C2)")
+        if "instance" in body and not isinstance(body["instance"], str):
+            viol.append("instance must be a string when present (§6.4-2)")
+    elif t == "capability":
+        img = ((body.get("send") or {}).get("image")) if isinstance(body.get("send"), dict) else None
+        if not isinstance(img, dict):
+            return ["send.image must be an object (§6.6)"]
+        mimes = img.get("mimes")
+        if not (isinstance(mimes, list) and mimes and set(mimes) <= IMAGE_MIMES):
+            viol.append("send.image.mimes must be a non-empty subset of the whitelist (§6.6)")
+        mb = img.get("max_bytes")
+        if not (isinstance(mb, int) and 0 < mb <= IMAGE_MAX_BYTES):
+            viol.append("send.image.max_bytes must be an int in (0, 20 MiB] (§6.1-3)")
+        if img.get("dedup") != "sha256":
+            viol.append('send.image.dedup must be "sha256" (§6.4-1)')
+        if img.get("idempotency") is not True:
+            viol.append("send.image.idempotency must be true (§6.4-2 / §6.6)")
+        if "instance" in img and not (isinstance(img["instance"], str) and img["instance"]):
+            viol.append("send.image.instance must be a non-empty string when present (§6.4-2)")
+        mr = img.get("max_runtime_ms")
+        if not (isinstance(mr, int) and mr > 0):
+            viol.append("send.image.max_runtime_ms must be a positive int (§6.2-4)")
+    else:
+        viol.append(f"unknown fixture type {t!r}")
+    return viol
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
     fixtures_dir = root / "fixtures" / "message-canonical"
@@ -223,12 +338,42 @@ def main(argv: list[str]) -> int:
         if not viol:
             print(f"  [ok]   {f.name} (rich-file)")
 
+    # send-target §6（发图片）：valid/ 必须全过；invalid/ 每条必须被判出至少一处违规（反向牙齿）。
+    img_dir = root / "fixtures" / "send-target-image"
+    img_valid = sorted((img_dir / "valid").glob("*.json"))
+    img_invalid = sorted((img_dir / "invalid").glob("*.json"))
+    for name, lst in (("valid", img_valid), ("invalid", img_invalid)):
+        if not lst:                      # §6.8:目录空 = 牙齿没了,fail-closed
+            print(f"  [FAIL] fixtures/send-target-image/{name}/ is empty", file=sys.stderr)
+            total_viol += 1
+    for f, must_pass in [(f, True) for f in img_valid] + [(f, False) for f in img_invalid]:
+        try:
+            obj = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  [FAIL] {f.name}: cannot parse JSON: {e}", file=sys.stderr)
+            total_viol += 1
+            continue
+        viol = validate_image_send(obj)
+        if must_pass:
+            for v in viol:
+                print(f"  [FAIL] {f.name}: {v}", file=sys.stderr)
+            total_viol += len(viol)
+            if not viol:
+                print(f"  [ok]   {f.name} (send-target-image)")
+        elif not viol:
+            print(f"  [FAIL] invalid/{f.name}: expected a violation, got none (§6 牙齿钝了)",
+                  file=sys.stderr)
+            total_viol += 1
+        else:
+            print(f"  [ok]   invalid/{f.name} rejected: {viol[0]}")
+
     print(f"\nconformance: {len(files)} envelope + {len(read_files)} read-signal "
-          f"+ {len(rich_files)} rich-file fixtures, {total_viol} violation(s)")
+          f"+ {len(rich_files)} rich-file + {len(img_valid)}/{len(img_invalid)} send-target-image "
+          f"(valid/invalid) fixtures, {total_viol} violation(s)")
     if total_viol:
         print("conformance: RED — fixtures drifted from contract", file=sys.stderr)
         return 1
-    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive")
+    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive + send-target §6")
     return 0
 
 

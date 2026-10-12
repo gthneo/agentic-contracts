@@ -1,0 +1,9 @@
+{
+  "type": "response",
+  "body": {
+    "ok": false,
+    "chat_id": "wxid_test_zhangsan",
+    "opened": false,
+    "error": "Execution loop ended"
+  }
+}

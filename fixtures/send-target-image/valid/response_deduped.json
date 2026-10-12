@@ -1,0 +1,9 @@
+{
+  "type": "response",
+  "body": {
+    "ok": true,
+    "chat_id": "wxid_test_zhangsan",
+    "opened": false,
+    "deduped": true
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "type": "lookup_miss",
+  "body": {
+    "code": "KEY_NOT_FOUND",
+    "store_since": 1790990000,
+    "instance": "pdwx-store-2026-10-12"
+  }
+}

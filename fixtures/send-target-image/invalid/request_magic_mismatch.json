@@ -1,0 +1,11 @@
+{
+  "type": "request",
+  "body": {
+    "chatId": "wxid_test_zhangsan",
+    "idempotencyKey": "amr-img-42-9f3c0e7a1b2d4c5e6f708192",
+    "image": {
+      "mimeType": "image/png",
+      "data": "/9j/4AABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
+    }
+  }
+}

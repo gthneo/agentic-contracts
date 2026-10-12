@@ -1,0 +1,10 @@
+{
+  "type": "response",
+  "body": {
+    "ok": false,
+    "chat_id": "wxid_test_zhangsan",
+    "opened": false,
+    "code": "SEND_UNCONFIRMED",
+    "error": "按下回车后没能确认"
+  }
+}
