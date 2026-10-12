@@ -1,0 +1,37 @@
+{
+  "case": "present_t_first_29s_semi",
+  "rule": "00-CONSTITUTION.md「在场并行」宪法参数 T_first（班迪 2026-10-12 审定）+ I-3 首条时机",
+  "description": "T_first 边界：首条在距在场开始 29 秒时就绪（不足 30 秒），按 semi 逐条放行，不排队延后",
+  "input": {
+    "account_cap": "parallel",
+    "group_rungs": [],
+    "session_rung": "semi",
+    "presence": "present",
+    "n_minutes": 10,
+    "policy_enabled": true,
+    "in_policy_scope": true,
+    "is_large_group": false,
+    "explicitly_listed": false,
+    "sticky_exit": false,
+    "anomaly_downgraded": false,
+    "handles_ready": true,
+    "backend_cancel": true,
+    "item": {
+      "action": "conversation_send",
+      "draft_predates_presence": false,
+      "trigger_predates_presence": false,
+      "indicator_rendered": true,
+      "t_first_elapsed": false,
+      "within_rate_cap": true,
+      "run_after_within_window": true,
+      "t_first": {
+        "ready_s": 29,
+        "at_s": 29
+      }
+    }
+  },
+  "expected": {
+    "presence_parallel_active": true,
+    "effective_rung": "semi"
+  }
+}

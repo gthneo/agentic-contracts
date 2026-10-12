@@ -154,6 +154,10 @@ N_MAX_MINUTES = 10  # 0 号宪法「在场并行」宪法参数 N_max（2026-10-
 #   ≤ R_MAX_SENDS_PER_PRESENCE 不超出（第 7 条允许、第 8 条起按 semi）。
 R_MAX_MIN_GAP_SECONDS = 30
 R_MAX_SENDS_PER_PRESENCE = 7
+# 0 号宪法「在场并行」宪法参数 T_first（班迪 2026-10-12 审定；原拟 10 秒；改宪法时同步改这里）：
+#   距在场开始 ≥ T_FIRST_SECONDS 时就绪的那一条才算已过 T_first（恰好 30 秒允许）；不足 30 秒时就绪的那一条
+#   按 semi、不排队延后 —— 之后即使已过 T_first，它也不会再被自动按 parallel 交出。
+T_FIRST_SECONDS = 30
 # 读不到 / 不可信的状态在 fixture 里写成 null（I-1 fail-closed）：sticky / 作用域读不到 = 不生效，
 # 群成员数判不出 = 按超过 G 处理，N 读不到 = 配置不合法。
 NULLABLE_BOOL_FIELDS = frozenset({"in_policy_scope", "is_large_group", "sticky_exit"})
@@ -176,6 +180,36 @@ def rate_within_r_max(rate: dict) -> bool:
     """
     return (rate["send_ordinal"] <= R_MAX_SENDS_PER_PRESENCE
             and rate["gap_seconds"] >= R_MAX_MIN_GAP_SECONDS)
+
+
+def t_first_elapsed_at_ready(tf: dict) -> bool:
+    """按宪法 T_first 判本条是否已过 T_first。
+
+    tf = {"ready_s": 该条就绪待交出时距在场开始的秒数,
+          "at_s": 判定这一刻距在场开始的秒数（≥ ready_s）}
+    只看就绪时刻：不足 T_first 时就绪的那一条按 semi、不排队延后，at_s 晚于 T_first 也不改判。
+    """
+    return tf["ready_s"] >= T_FIRST_SECONDS
+
+
+def _validate_t_first(tf: object, elapsed: object) -> list[str]:
+    """item.t_first（可选）的结构闸 + 与 item.t_first_elapsed 的一致性闸。"""
+    if not isinstance(tf, dict):
+        return ["input.item.t_first must be an object {ready_s, at_s}"]
+    viol: list[str] = []
+    for k in ("ready_s", "at_s"):
+        v = tf.get(k)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
+            viol.append(f"input.item.t_first.{k} {v!r} must be a number ≥ 0")
+    if viol:
+        return viol
+    if tf["at_s"] < tf["ready_s"]:
+        return [f"input.item.t_first.at_s {tf['at_s']!r} must be ≥ ready_s {tf['ready_s']!r}"]
+    computed = t_first_elapsed_at_ready(tf)
+    if elapsed is not computed:
+        viol.append(f"input.item.t_first_elapsed {elapsed!r} disagrees with T_first "
+                    f"(就绪时刻 ≥ {T_FIRST_SECONDS} 秒，不排队延后) on t_first {tf!r}: rule gives {computed}")
+    return viol
 
 
 def _validate_rate(rate: object, within: object) -> list[str]:
@@ -298,6 +332,8 @@ def validate_presence_case(obj: object) -> list[str]:
                 viol.append(f"input.item.{fld} must be a bool or null (null = 读不到)")
         if "rate" in item:
             viol.extend(_validate_rate(item["rate"], item.get("within_rate_cap")))
+        if "t_first" in item:
+            viol.extend(_validate_t_first(item["t_first"], item.get("t_first_elapsed")))
     if exp.get("effective_rung") not in RUNGS:
         viol.append(f"expected.effective_rung {exp.get('effective_rung')!r} not in ladder")
     if not isinstance(exp.get("presence_parallel_active"), bool):

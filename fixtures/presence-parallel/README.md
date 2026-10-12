@@ -33,7 +33,8 @@
       "t_first_elapsed": true,
       "within_rate_cap": true,
       "run_after_within_window": true,
-      "rate": { "send_ordinal": 2, "gap_seconds": 30 }
+      "rate": { "send_ordinal": 2, "gap_seconds": 30 },
+      "t_first": { "ready_s": 30, "at_s": 30 }
     }
   },
   "expected": { "presence_parallel_active": true, "effective_rung": "六档之一" }
@@ -58,14 +59,15 @@
 | `item.rate`（可选） | 用宪法上限 `R_max` 的具体数值钉边界时给出：`send_ordinal` = 本次在场以 `parallel` 交出的第几条（**含本条**，≥ 1）；`gap_seconds` = 与该会话上一条 Agent 发出的间隔（秒，≥ 0）。给出时，`within_rate_cap` 必须等于按 `R_max`（班迪 2026-10-12 审定：间隔 **≥ 30 秒**、条数 **≤ 7**）算出的结果——**恰好 30 秒不超出、29.9 秒超出；第 7 条不超出、第 8 条超出**。参考实现常量 `R_MAX_MIN_GAP_SECONDS` / `R_MAX_SENDS_PER_PRESENCE` |
 | `item.draft_predates_presence` | 这条稿在本次在场开始之前就已拟好（I-3：仍按 `semi` 逐条放行） |
 | `item.indicator_rendered` | 「在场并行中」标识已在该视图呈现（I-3：首条发出须晚于它） |
-| `item.t_first_elapsed` | 距在场开始已过 `T_first`（I-3） |
+| `item.t_first_elapsed` | 距在场开始已过 `T_first`（I-3）；未过的那一条按 `semi`，不排队延后 |
+| `item.t_first`（可选） | 用 `T_first` 的具体数值钉边界时给出：`ready_s` = 该条就绪待交出时距在场开始的秒数；`at_s` = 判定这一刻距在场开始的秒数（≥ `ready_s`）。给出时，`t_first_elapsed` 必须等于「`ready_s` ≥ 30」（班迪 2026-10-12 审定 `T_first` = **30 秒**）——**恰好 30 秒已过、29 秒未过；10 秒就绪的那一条到 30 秒也不改判**（不排队延后）。参考实现常量 `T_FIRST_SECONDS` |
 | `item.run_after_within_window` | 出站后端回告的预计放出时刻存在、可解析，且不晚于 交出时刻 + `W`；回告缺失即为 `false`（I-3） |
 
-覆盖的情形（55 条）：基本四条（不在场 / 在场 + 策略开 / 在场 + 策略关 / 判不出）· 会话档护栏（人设 `parallel` 但策略关、
+覆盖的情形（58 条）：基本四条（不在场 / 在场 + 策略开 / 在场 + 策略关 / 判不出）· 会话档护栏（人设 `parallel` 但策略关、
 人设 `draft`、人设 `off`）· 压顶（账号封顶、单组、多组取最小、授权组非空时的账号压顶）· 档位 ≥ `audit`（会话 `auto` 在场仍封顶
 `parallel`、会话 `audit` 不在场为 `semi`）· 其余三类动作封顶 `semi` · 异常自降（在场 / 不在场）· sticky 结束 · 进入条件
 （`N` 超上限、无 `cancel`、手柄不齐、大群未列入 / 已列入）· 逐条交出条件（积压稿、标识未呈现、未过 `T_first`、放出时刻超窗或回告缺失、离场期间到达消息的新生成回复 = 口径 B）· 读不到
-（`N` / sticky / 作用域 / 群成员数为 `null`）· `N` 为 0、负数、10.5 · 会话档 `audit` 不忽略 sticky · 账号封顶 `draft` · 显式列入不越作用域 · 频次上限超出 / 读不到 · `R_max` 边界（第 7 条允许 / 第 8 条按 `semi`；间隔恰好 30 秒允许 / 29.9 秒按 `semi`）· 单条字段读不到（拟出时刻、触发时刻、标识、`T_first`、放出时刻回告）。
+（`N` / sticky / 作用域 / 群成员数为 `null`）· `N` 为 0、负数、10.5 · 会话档 `audit` 不忽略 sticky · 账号封顶 `draft` · 显式列入不越作用域 · 频次上限超出 / 读不到 · `R_max` 边界（第 7 条允许 / 第 8 条按 `semi`；间隔恰好 30 秒允许 / 29.9 秒按 `semi`）· `T_first` 边界（29 秒就绪按 `semi` / 恰好 30 秒允许 / 10 秒就绪到 30 秒仍按 `semi`）· 单条字段读不到（拟出时刻、触发时刻、标识、`T_first`、放出时刻回告）。
 
 在场的**开始 / 维持 / 结束**（I-1）属运行时行为，fixture 只给出它的判定结果，不替代消费方对在场采集本身的测试。
 消费方（如 AMR）实现生效档判定后，SHOULD 用同一批 fixture 做消费方侧自检（双向自检，同 `message-canonical/` 的做法）。
