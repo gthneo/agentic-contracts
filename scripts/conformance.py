@@ -142,6 +142,55 @@ def validate_rich_file(obj: object) -> list[str]:
     return viol
 
 
+def _constitution_units(path: pathlib.Path, mode: str) -> list[tuple[str, list[str]]]:
+    """Split a constitution text into (section heading, units). mode: zh | en | zh-en-zh | zh-en-en."""
+    sections: list[tuple[str, list[str]]] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.rstrip()
+        if line.startswith("## "):
+            sections.append((line[3:].strip(), []))
+            continue
+        if not sections or not line.strip() or line.startswith("*") or line.strip() == "---":
+            continue
+        if mode in ("zh", "zh-en-zh"):
+            if line.startswith("\u3000\u3000"):
+                sections[-1][1].append(line.strip())
+        elif mode == "en":
+            if not line.startswith((">", "#")):
+                sections[-1][1].append(line.strip())
+        elif mode == "zh-en-en" and line.startswith("> "):
+            sections[-1][1].append(line[2:].strip())
+    return sections
+
+
+def check_constitution_sync(root: pathlib.Path) -> int:
+    """GOVERNANCE §6 · N8：中英对照版须与中文正式文本、英文版逐单元一致；中英两版逐节单元数相同。"""
+    zh_p, en_p, zhen_p = (root / "00-CONSTITUTION.md", root / "00-CONSTITUTION.en.md",
+                          root / "00-CONSTITUTION.zh-en.md")
+    if not (en_p.exists() and zhen_p.exists()):
+        print("  [FAIL] constitution: 00-CONSTITUTION.en.md / .zh-en.md missing", file=sys.stderr)
+        return 1
+    zh, en = _constitution_units(zh_p, "zh"), _constitution_units(en_p, "en")
+    bz, be = _constitution_units(zhen_p, "zh-en-zh"), _constitution_units(zhen_p, "zh-en-en")
+    viol = 0
+    if len(zh) != len(en):
+        print(f"  [FAIL] constitution: {len(zh)} zh sections vs {len(en)} en sections", file=sys.stderr)
+        viol += 1
+    for (zt, zu), (_et, eu) in zip(zh, en):
+        if len(zu) != len(eu):
+            print(f"  [FAIL] constitution: {zt} has {len(zu)} zh units vs {len(eu)} en units", file=sys.stderr)
+            viol += 1
+    if [u for _, us in bz for u in us] != [u for _, us in zh for u in us]:
+        print("  [FAIL] constitution: zh-en Chinese text differs from 00-CONSTITUTION.md", file=sys.stderr)
+        viol += 1
+    if [u for _, us in be for u in us] != [u for _, us in en for u in us]:
+        print("  [FAIL] constitution: zh-en English text differs from 00-CONSTITUTION.en.md", file=sys.stderr)
+        viol += 1
+    if not viol:
+        print(f"  [ok]   constitution texts in sync ({sum(len(u) for _, u in zh)} units)")
+    return viol
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
     fixtures_dir = root / "fixtures" / "message-canonical"
@@ -223,12 +272,14 @@ def main(argv: list[str]) -> int:
         if not viol:
             print(f"  [ok]   {f.name} (rich-file)")
 
+    total_viol += check_constitution_sync(root)
+
     print(f"\nconformance: {len(files)} envelope + {len(read_files)} read-signal "
           f"+ {len(rich_files)} rich-file fixtures, {total_viol} violation(s)")
     if total_viol:
         print("conformance: RED — fixtures drifted from contract", file=sys.stderr)
         return 1
-    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive")
+    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive; constitution texts in sync")
     return 0
 
 

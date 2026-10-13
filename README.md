@@ -14,7 +14,7 @@
 **[`00-CONSTITUTION.md`](00-CONSTITUTION.md) — 服务于人的 Agent 宪法**，是本仓**最高、统领一切**的契约。
 下面所有技术契约（message / send-target / group-metadata / moments / control-and-voice / 版本规范）
 都为它服务、可追溯到它：**以「事做成、人开心、物有序」为目的，以人、事、物为对象；本人授权、Agent 行事、
-本人随时收回；放权凭证据扩大、按后果设限；算料归人、只增不丢；积德。**（英文版 [`00-CONSTITUTION.en.md`](00-CONSTITUTION.en.md) ·
+本人随时收回；放权凭证据扩大、按后果设限；算料归人、不静默丢失；积德。**（英文版 [`00-CONSTITUTION.en.md`](00-CONSTITUTION.en.md) ·
 中英对照 [`00-CONSTITUTION.zh-en.md`](00-CONSTITUTION.zh-en.md)） 任何契约/实现**违背 0 号契约，无论多高效，不予采纳**。
 
 > **治理铁律·先读：[`GOVERNANCE.md`](GOVERNANCE.md)** —— 单账号 = 无身份分权 → 必须**机器强制（CI）+
