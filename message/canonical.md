@@ -320,7 +320,7 @@
 见 conformance C6。
 
 **R4 · 公众号（`gh_*`）行为契约化**
-公众号图文推送不在普通消息表。后端**二选一，禁静默空**：
+公众号图文推送不在普通会话的消息库里（**2026-10-19 订正**：原写「不在普通消息表」不准确——微信 4.x 把公众号会话以及部分服务号 / 企业会话的 `Msg_*` 表放在单独的 `biz_message_N.db`，与普通会话的 `message_N.db` 分开；.28 实测 `biz_message_0.db` 有 346 张表 = 335 公众号 + 10 其他会话 + 1 无会话。所以 `out-of-scope` 是**读取范围的选择**，不是「数据不存在」。fullwechat 0.16.0 起非公众号会话已覆盖 `biz_message_N.db`；公众号仍声明 `out-of-scope`，班迪 2026-10-19 审定暂不纳入）。后端**二选一，禁静默空**：
 - **支持读** → 吐 canonical 信封（`kind:"link"`，`link{title,summary,url}` + `ts`）；或
 - **不支持** → 在 §6.2 capabilities 声明 `read.gh_messages:"out-of-scope"`，消费方据此预判、不误读为 0。
 
