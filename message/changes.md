@@ -2,7 +2,7 @@
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`message/` → AMR/@gthneo）。
 >
-> **日期** 2026-10-19 ｜ **状态** **提案·rev0**——PD仁德 起草，待 **AMR仁德**（契约定义/审计方，定稿）与 **Metis仁德**（第二消费方，共同评审）审；班迪 2026-10-19 审定由两个消费方共同评审。**不 merge。**
+> **日期** 2026-10-19 ｜ **状态** **提案·rev0**（2026-10-19 补实现中查到的事实：§3.3 覆盖、§4.2 换代原因、§5 `NOT_READY` 原因、§9.2 字段定义、§11 存储方式）——PD仁德 起草，待 **AMR仁德**（契约定义/审计方，定稿）与 **Metis仁德**（第二消费方，共同评审）审；班迪 2026-10-19 审定由两个消费方共同评审。**不 merge。**
 > **from** PD仁德（powerdata-wx / fullwechat 微信后端，`/Users/neo/as/fullwechet`）—— 契约执笔 + 实现方
 > **to** AMR仁德（AgenticMessageRouter，`/Users/neo/as/agenticmessagerouter`）· Metis仁德（Metis，`/Users/neo/as/metis`，微信 Adapter 见 `gthneo/metis#9`）
 > **姊妹契约** `canonical.md`（单条消息的信封语义，本契约原样复用）· `../outbox/dispatch.md`（出站；本契约只管入站读）· `../VERSIONING.md`
@@ -149,6 +149,8 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 | 被观测之前就在本机删除的消息 | 行已不在库里。 |
 | 微信未登录、数据库密钥缺失期间到达、且恢复后已不在本机库里的消息 | 恢复后能读到的会补上；读不到的无从观测。 |
 | `canonical.md` §5 列为噪声、后端不 emit 的消息 | 与现有读路径一致。 |
+| 公众号（`gh_`）图文 | 不在微信的消息表里（`canonical.md` §6.2 已声明为读路径之外）；公众号会话里普通消息表中的行照常进流。 |
+| 消息自身时间早于保留窗口下限的消息 | 例如很久以前的消息在今天才同步到本机。不进流是为了避免「已被 GC 回收的 Change 又以新 `seq` 重复出现」；这类消息用 `GET /api/messages/{chat_id}` 读取。 |
 
 ---
 
@@ -168,6 +170,7 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 
 - Change Feed 的存储被重建时，`epoch` 换成新值，`seq` 从头开始。
 - **已知的重建原因**：后端 `agent.db` 用 SQLCipher 加密、密钥即 bearer token；token 与库密钥不一致时，后端会删除并重建 `agent.db`（`gthneo/powerdata-wx` `packages/agent-server-rust/src/db/mod.rs:86-104`，fail-closed 改造见 `#79`）。Change Feed 存于 `agent.db`，所以 token 未先 rekey 就轮换会导致换代。
+- **本实例登录的微信账号变了**：后端清空旧账号的 Change 并换代——旧账号的快照绝不能以新账号的身份被读出（§8）。
 - 旧代次的 cursor 一律返回 `410 CURSOR_EXPIRED`，`reason="epoch_changed"`。
 
 ### 4.3 过期（retention）
@@ -194,7 +197,7 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 | `401` | — | 鉴权失败（现有行为）。 |
 | `409` | `WRONG_ACCOUNT` | cursor 绑定的账号 ≠ 本实例当前登录账号（§8）。 |
 | `410` | `CURSOR_EXPIRED` | `reason ∈ {retention, epoch_changed}`，附 `oldest_cursor` / `head_cursor`（§4.4）。 |
-| `503` | `NOT_READY` | 微信未登录 / 密钥缺失 / Change Feed 尚未初始化；附 `reason`。**这些情况绝不返回 `200` 空数组。** |
+| `503` | `NOT_READY` | `reason ∈ {logged_out, not_observing}`：微信未登录；或轮询器超过 300 s 没有完成一整轮观测（如消息库密钥缺失、轮询器停顿）。**这些情况绝不返回 `200` 空数组。** |
 
 错误体统一为 `{ "ok": false, "code": "…", "error": "…人可读说明…" }`，另加各自的附带字段。
 
@@ -243,10 +246,11 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 ```json
 "message_changes": { "epoch": "e7c19a0b", "head_seq": 18233,
                      "last_append_age_secs": 12, "poll_watermark_age_secs": 3,
-                     "oldest_retained_age_secs": 604000 }
+                     "oldest_retained_age_secs": 604000, "unreadable_chats": 0 }
 ```
 
-- `poll_watermark_age_secs` = 轮询器上次推进观测水位距今的秒数。它抓「轮询器活着但不推进」——现有 `last_poll_age_secs` 只能证明循环在跑，证明不了在推进。
+- `poll_watermark_age_secs` = 轮询器上一次**完成一整轮观测**（读到会话库并处理完本轮所有有变化的会话）距今的秒数。它抓「轮询器活着但不推进」——现有 `last_poll_age_secs` 只能证明循环在跑，证明不了在推进。
+- `unreadable_chats` = 上一轮有变化、但消息表暂时读不到（某个分片缺密钥）的会话数；它们每轮重试。非 0 表示有消息正在延迟进流。
 - `last_append_age_secs` 大，不一定是故障（夜间可能确实没有消息）；`poll_watermark_age_secs` 大才是故障信号。
 
 ### 9.3 血缘（Lineage）
@@ -274,11 +278,11 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 
 | 项 | 计划 |
 |---|---|
-| 存储 | `agent.db` 新迁移 `V6__message_changes.sql`：表 `message_changes`（`seq INTEGER PRIMARY KEY AUTOINCREMENT`、消息身份键、`op`、`chat_id`、`observed_at`、信封 JSON；唯一约束 `(身份键, op)`，`INSERT OR IGNORE`）+ 元数据行（`epoch`、轮询观测水位）。现有迁移到 `V5__outbox_account.sql`。 |
+| 存储 | `agent.db` 表 `message_changes`（`seq INTEGER PRIMARY KEY AUTOINCREMENT`、消息身份键、`op`、`chat_id`、`observed_at`、信封 JSON；唯一约束 `(身份键, op)`，`INSERT OR IGNORE`）+ 键值表 `message_feed_meta`（`epoch`、账号短哈希、`started_at`、观测水位、`gc_floor`）。**运行时 `CREATE TABLE IF NOT EXISTS` 建表，不走 refinery 迁移**：refinery 默认 `abort_missing=true`，旧版二进制打开记录过更新迁移的 `agent.db` 会拒绝启动，带新迁移的版本就无法靠换回旧二进制回滚。 |
 | 轮询器 | 改写 `wechat_message_poll.rs`：选会话改为 `sort_timestamp > 上周期水位 − 安全余量`（修 #64 的名额挤占）；删除「首见只记基线」分支（修 #64）；消息身份用 `serverId`（修 #60，与 PR #58 同一原则）；水位落盘，重启后从水位续扫；单会话积压超过单周期上限时下周期继续。 |
-| 撤回检测 | 已入日志的 `serverId` 行变为 `local_type=10000` 结构化 `<sysmsg type=revokemsg>` → 追加 `revoke`。**存疑**：撤回是否会更新该会话在 `session.db` 里的 `sort_timestamp`（决定轮询器能否扫到这个会话），M1 在 Dev `.156` 上实测；若不更新，需另加对近期会话的回扫。 |
+| 撤回检测 | 已入日志的 `serverId` 行变为 `local_type=10000` 结构化 `<sysmsg type=revokemsg>` → 追加 `revoke`。选会话用会话指纹（活动时间 + `last_msg_locald_id` + 摘要哈希），撤回会改写会话摘要。**存疑**：撤回后会话行是否一定变化，M1 在 Dev `.156` 上实测。 |
 | WS | `message:new` 加 `seq`、`epoch`，在追加提交后发出。 |
-| 发布 | PWDX 主程序 agent-server **0.15.x → 0.16.0**（minor，按 7 份发布文档纪律）；PWDX 的 Connector（wechat-mcp，MCP（Model Context Protocol）服务）本里程碑不动。开发与 ≥24 小时观测只在 Dev `.156`（`192.168.31.156`）。回滚 = 换回 0.15.x 二进制；新表只增不改旧表，旧二进制忽略它。 |
+| 发布 | PWDX 主程序 agent-server **0.15.x → 0.16.0**（minor，按 7 份发布文档纪律）；PWDX 的 Connector（wechat-mcp，MCP（Model Context Protocol）服务）本里程碑不动。开发与 ≥24 小时观测只在 Dev `.156`（`192.168.31.156`）。回滚 = 换回 0.15.x 二进制；两张新表不经迁移登记，旧二进制直接忽略。实现分支 `gthneo/powerdata-wx` `feat/message-change-feed`，已热更到 Dev `.156` 观测。 |
 
 ---
 
