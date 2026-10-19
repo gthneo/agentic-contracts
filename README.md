@@ -39,7 +39,7 @@
 
 | 目录 | 契约 | owner-reviewer |
 |---|---|---|
-| `message/` | 消息规范化信封（canonical） | AMR / @gthneo |
+| `message/` | 消息规范化信封（canonical）+ 消息变更流（changes，提案） | AMR / @gthneo |
 | `send-target/` | 冷会话自动翻出发送 | AMR / @gthneo |
 | `group-metadata/` | 群成员名册 + 群 meta | AMR / @gthneo |
 | `moments/` | 朋友圈读+点赞（read-like）+ 发布广播（publish） | AMR / @gthneo |
@@ -113,6 +113,7 @@ agentic-contracts/
   VERSIONING.md                      # 版本化 + 兼容矩阵（全仓共守）
   CODEOWNERS                         # 每份契约的 owner-reviewer
   message/canonical.md               # 消息规范化信封（通道无关核心 + 微信附录）
+  message/changes.md                 # 消息变更流：seq cursor 增量读取（提案）
   send-target/send-target.md         # 冷会话自动翻出发送
   group-metadata/group-metadata.md   # 群成员名册 + 群 meta
   moments/read-like.md               # 朋友圈：读 + 点赞（v1）
