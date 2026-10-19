@@ -2,7 +2,7 @@
 
 > 真相源: `agentic-contracts` 仓 · owner 见 CODEOWNERS（`message/` → AMR/@gthneo）。
 >
-> **日期** 2026-10-19 ｜ **状态** **提案·rev0**（2026-10-19 补实现中查到的事实：§3.3 覆盖、§4.2 换代原因、§5 `NOT_READY` 原因、§9.2 字段定义、§11 存储方式）——PD仁德 起草，待 **AMR仁德**（契约定义/审计方，定稿）与 **Metis仁德**（第二消费方，共同评审）审；班迪 2026-10-19 审定由两个消费方共同评审。**不 merge。**
+> **日期** 2026-10-19 ｜ **状态** **提案·rev0**（2026-10-19 按「只增不删」改为不回收；补实现中查到的事实：§3.3 覆盖、§4.2 换代原因、§5 `NOT_READY` 原因、§9.2 字段定义、§11 存储方式）——PD仁德 起草，待 **AMR仁德**（契约定义/审计方，定稿）与 **Metis仁德**（第二消费方，共同评审）审；班迪 2026-10-19 审定由两个消费方共同评审。**不 merge。**
 > **from** PD仁德（powerdata-wx / fullwechat 微信后端，`/Users/neo/as/fullwechet`）—— 契约执笔 + 实现方
 > **to** AMR仁德（AgenticMessageRouter，`/Users/neo/as/agenticmessagerouter`）· Metis仁德（Metis，`/Users/neo/as/metis`，微信 Adapter 见 `gthneo/metis#9`）
 > **姊妹契约** `canonical.md`（单条消息的信封语义，本契约原样复用）· `../outbox/dispatch.md`（出站；本契约只管入站读）· `../VERSIONING.md`
@@ -20,7 +20,7 @@
 | **`seq`** | A strictly increasing integer the backend assigns when it appends a Change, unique within one epoch. | 序列号，后端追加时分配 |
 | **Epoch** | An identifier for one continuous lifetime of the feed storage; it changes whenever that storage is recreated. | 日志代次：存储被重建即换代 |
 | **Cursor** | An opaque string issued by the backend that encodes (account, epoch, seq); consumers store it and send it back unchanged. | 游标，消费方原样保存、原样回传 |
-| **Retention Window** | The minimum time span of Changes the backend guarantees to keep readable. | 保留窗口 |
+| **Append-only** | The backend never deletes or rewrites a Change; there is no retention limit in v1. | 只追加：不回收、不改写 |
 | **Wake Hint** | A push notification that only tells a consumer to pull; it carries no delivery guarantee. | 唤醒提示，只提示「该拉了」，不保证送达 |
 | **Consumer** | Any system that reads the feed with its own cursor. | 消费方（AMR、Metis 微信 Adapter、OpenClaw channel、wechat-mcp） |
 
@@ -73,7 +73,7 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `cursor` | str | 与 `from` 二选一 | 上一次响应的 `next_cursor`，原样回传。消费方**不得**解析或构造 cursor。 |
-| `from` | `now` \| `earliest` | 与 `cursor` 二选一 | 首读起点。`now` = 从当前队头开始，只要之后的新变更（返回空 `changes` + 当前 `next_cursor`）；`earliest` = 从保留窗口内最早的 Change 开始。两者都不给按 `now`（口径 ②）。 |
+| `from` | `now` \| `earliest` | 与 `cursor` 二选一 | 首读起点。`now` = 从当前队头开始，只要之后的新变更（返回空 `changes` + 当前 `next_cursor`）；`earliest` = 从本代次最早的 Change 开始。两者都不给按 `now`（口径 ②）。 |
 | `limit` | int | 否 | 单页条数，缺省 `100`，后端 clamp 到 `[1, 500]`。 |
 
 **响应（成功）**：HTTP `200`
@@ -150,7 +150,6 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 | 微信未登录、数据库密钥缺失期间到达、且恢复后已不在本机库里的消息 | 恢复后能读到的会补上；读不到的无从观测。 |
 | `canonical.md` §5 列为噪声、后端不 emit 的消息 | 与现有读路径一致。 |
 | 公众号（`gh_`）图文 | 不在微信的消息表里（`canonical.md` §6.2 已声明为读路径之外）；公众号会话里普通消息表中的行照常进流。 |
-| 消息自身时间早于保留窗口下限的消息 | 例如很久以前的消息在今天才同步到本机。不进流是为了避免「已被 GC 回收的 Change 又以新 `seq` 重复出现」；这类消息用 `GET /api/messages/{chat_id}` 读取。 |
 
 ---
 
@@ -173,19 +172,20 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 - **本实例登录的微信账号变了**：后端清空旧账号的 Change 并换代——旧账号的快照绝不能以新账号的身份被读出（§8）。
 - 旧代次的 cursor 一律返回 `410 CURSOR_EXPIRED`，`reason="epoch_changed"`。
 
-### 4.3 过期（retention）
+### 4.3 只追加，不回收
 
-- 后端保证保留窗口内的 Change 可读（窗口长度见口径 ①，`capabilities` 中声明）；更早的可被回收。
-- cursor 指向已回收的位置 → `410 CURSOR_EXPIRED`，`reason="retention"`。
+- 按班迪 2026-10-19 全局规定「数据与代码只增不删」，后端**不回收、不删除** Change（口径 ① 因此定为不回收）。本代次内任何 cursor 都一直可读。
+- 换代时旧代次的行留在库里，但不再被读出（§4.2、§8）。
+- `reason="retention"` 保留为将来的值：若日后改为有限保留，以 minor 版本启用，`capabilities.retention_days` 由 `null` 改为天数。
 
 ### 4.4 收到 `410` 后的恢复
 
 ```json
-{ "ok": false, "code": "CURSOR_EXPIRED", "reason": "retention",
+{ "ok": false, "code": "CURSOR_EXPIRED", "reason": "epoch_changed",
   "oldest_cursor": "opaque…", "head_cursor": "opaque…" }
 ```
 
-消费方：用 `GET /api/messages/{chat_id}` 按时间范围补拉缺口 → 从 `oldest_cursor`（`retention`）或新代次的 `from=earliest`（`epoch_changed`）继续 → 重叠按 `msg_id` 去重。**补拉是否完整由消费方如实记录**；补不全的时间段应标明，不得当作「没有消息」。
+消费方：用 `GET /api/messages/{chat_id}` 按时间范围补拉缺口 → 从 `oldest_cursor`（新代次的起点）继续 → 重叠按 `msg_id` 去重。**补拉是否完整由消费方如实记录**；补不全的时间段应标明，不得当作「没有消息」。
 
 ---
 
@@ -196,7 +196,7 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 | `400` | `BAD_CURSOR` | cursor 无法解析或被篡改；同时给 `cursor` 与 `from`。 |
 | `401` | — | 鉴权失败（现有行为）。 |
 | `409` | `WRONG_ACCOUNT` | cursor 绑定的账号 ≠ 本实例当前登录账号（§8）。 |
-| `410` | `CURSOR_EXPIRED` | `reason ∈ {retention, epoch_changed}`，附 `oldest_cursor` / `head_cursor`（§4.4）。 |
+| `410` | `CURSOR_EXPIRED` | v1 只有 `reason=epoch_changed`（`retention` 预留，§4.3），附 `oldest_cursor` / `head_cursor`（§4.4）。 |
 | `503` | `NOT_READY` | `reason ∈ {logged_out, not_observing}`：微信未登录；或轮询器超过 300 s 没有完成一整轮观测（如消息库密钥缺失、轮询器停顿）。**这些情况绝不返回 `200` 空数组。** |
 
 错误体统一为 `{ "ok": false, "code": "…", "error": "…人可读说明…" }`，另加各自的附带字段。
@@ -235,7 +235,7 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 
 ```json
 { "message_changes": { "supported": true, "schema": "message.changes/1",
-                       "ops": ["add", "revoke"], "retention_days": 7,
+                       "ops": ["add", "revoke"], "retention_days": null, "append_only": true,
                        "max_limit": 500, "wake": ["ws:message:new"] } }
 ```
 
@@ -263,7 +263,7 @@ X-Consumer: <name>/<version>                               # 建议带，见 §7
 
 | # | 口径 | 选项与代价 | PD仁德 建议（非定案） |
 |---|---|---|---|
-| ① | 保留窗口 | (a) 7 天；(b) 30 天；(c) 按条数。存储估算：.28 自 2026-06-28 至 2026-10-11 约 124,744 条，约 1,200 条/天；每条快照按约 1 KB 估算，7 天约 8 MB，30 天约 36 MB | (a) 7 天起，可配置；与 outbox 幂等窗口一致 |
+| ① | 保留窗口 | **已定：不回收**（班迪 2026-10-19 全局规定「数据与代码只增不删」）。存储估算：.28 约 1,200 条/天，每条快照约 1 KB，一年约 440 MB | —（不再待定） |
 | ② | 首读缺省起点 | (a) `now`；(b) `earliest` | (a) `now`：首读走 §4.1 回填历史，`earliest` 需显式指定 |
 | ③ | 公众号（`gh_`）会话是否进流 | (a) 全部进流，消费方按 `chat_id` 前缀自行过滤；(b) 缺省排除，`?include=official` 打开 | (a)：Metis 规范要求「读宽」，过滤放在消费方；轮询器的选会话方式改为按 `sort_timestamp` 后不再有名额挤占问题 |
 | ④ | `revoke` 是否单独发唤醒提示 | (a) v1 不发，靠定时拉取；(b) 新增 WS 事件 | (a)：撤回量小，定时拉取的时延可接受；需要时以 minor 版本加 |
