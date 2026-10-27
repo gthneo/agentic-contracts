@@ -44,6 +44,7 @@
 | `group-metadata/` | 群成员名册 + 群 meta | AMR / @gthneo |
 | `moments/` | 朋友圈读+点赞（read-like）+ 发布广播（publish） | AMR / @gthneo |
 | `control-and-voice/` | 人机控制权互斥 + 口吻喂养 | AMR / @gthneo |
+| `graph/` | AMR → Metis 关系图谱只读导出（`amr-graph-export/1`：人 · 联系方式 · 合并记录 · 负样本 · 机构 · 任职，JSONL；消费方草案） | AMR / @gthneo |
 | `ops-agent/` | fullwechat 后端可观测/运维契约 | **fullwechat 持有** |
 | `VERSIONING.md` | 全仓版本化 + 兼容矩阵规则 | AMR / @gthneo |
 
@@ -118,5 +119,7 @@ agentic-contracts/
   moments/read-like.md               # 朋友圈：读 + 点赞（v1）
   moments/publish.md                 # 朋友圈：发布 / 广播（v2，AMR 统一持有）
   control-and-voice/control-and-voice.md  # 人机控制权互斥 + 口吻喂养
+  graph/amr-graph-export.md          # AMR → Metis 人·联系方式·机构·任职只读导出（JSONL，amr-graph-export/1）
+  fixtures/amr-graph-export/         # 上述导出流的化名样例（sample-small / sample-edge）
   ops-agent/ops-agent.md             # fullwechat 后端运维契约（fullwechat 持有）
 ```

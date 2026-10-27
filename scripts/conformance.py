@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import sys
 
 # --- canonical 口径（与 message/canonical.md §2.1 + §3 一致；漂移先改契约）-----------
@@ -209,6 +210,429 @@ def check_constitution_sync(root: pathlib.Path) -> int:
     return len(problems)
 
 
+# --- graph/amr-graph-export.md（AMR → Metis 只读导出流，JSONL；一份文件 = 一次导出）---------------
+# 消费方校验清单 §8.1 C1–C11 里能在一份流上自动化的部分。与 Metis 导入器 `--dry-run` 第一段同口径；
+# AMR `jl graph export` 的输出也应能过这一套（生产方自核 P13）。
+
+GRAPH_SCHEMA_PREFIX = "amr-graph-export/"
+GRAPH_TYPES = ("person", "contact_point", "merge_record", "negative_sample",
+               "organization", "employment", "self_identity")
+# 键序 = 契约 §3 / §4 表格行序；所有键恒在场（无值写 null）—— 这是确定性输出的构成（§2.4 第 2 条）。
+GRAPH_FIELDS = {
+    "header": ("type", "schema", "status", "mode", "since", "pii_policy", "exported_at", "source",
+               "rules", "watermark", "invariants", "counts", "body_sha256"),
+    "person": ("type", "id", "name", "name_by", "aliases", "watch", "created_at", "updated_at",
+               "last_contact_at", "accounts", "sources"),
+    "contact_point": ("type", "person_id", "kind", "value_raw", "value_normalized", "value_e164",
+                      "unparsed", "source", "by", "confirmed_at", "evidence_ref", "match_digits",
+                      "batch", "account_id", "pinned"),
+    "merge_record": ("type", "id", "action", "survivor_id", "merged_id", "by", "batch", "rule",
+                     "reason", "evidence", "merged_at", "undone_at"),
+    "negative_sample": ("type", "kind", "a_id", "b_id", "a_person_id", "b_person_id", "reason",
+                        "created_at"),
+    "organization": ("type", "id", "name", "aliases", "kind_raw", "parent_id", "by", "created_at",
+                     "merged_into", "registration_no", "jurisdiction", "domains"),
+    "employment": ("type", "id", "person_id", "org_id", "title", "dept", "state", "by", "source",
+                   "evidence_ref", "quote", "started_at", "ended_at", "recorded_at",
+                   "superseded_by", "revoked_at", "revoked_by", "revoke_reason"),
+    "self_identity": ("type", "account_id", "kind", "value_normalized", "persona_raw", "created_at"),
+}
+GRAPH_CP_KINDS = frozenset({"wechat", "phone", "email", "feishu", "imsg", "whatsapp", "wecom",
+                            "xhs", "unknown"})
+GRAPH_CP_SOURCES = frozenset({"conversation_counterpart", "roster_friend", "selfstated_capture",
+                              "user_link", "user_merge", "dedup_batch", "phone_suffix_match",
+                              "unknown"})
+GRAPH_BY = frozenset({"user", "engine"})
+GRAPH_TS = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")      # §2.4 第 4 条
+GRAPH_E164 = re.compile(r"^\+\d{6,15}$")                              # C10
+GRAPH_EVIDENCE_REF = "amr-evidence:"
+
+
+def _g_ts(v: object) -> bool:
+    return isinstance(v, str) and bool(GRAPH_TS.match(v))
+
+
+def _g_opt_ts(v: object) -> bool:
+    return v is None or _g_ts(v)
+
+
+def _g_str(v: object) -> bool:
+    return isinstance(v, str) and bool(v)
+
+
+def _g_opt_str(v: object) -> bool:          # §1 第 5 条：空串不合法，缺省写 null
+    return v is None or _g_str(v)
+
+
+def _g_str_list(v: object) -> bool:
+    return isinstance(v, list) and all(_g_str(x) for x in v)
+
+
+def _g_digits(v: object) -> bool:           # AMR 整数主键 → 十进制字符串（§2.4 第 6 条）
+    return isinstance(v, str) and v.isdigit()
+
+
+def _g_opt_int(v: object) -> bool:
+    return v is None or (isinstance(v, int) and not isinstance(v, bool))
+
+
+def validate_graph_export(lines: list[str]) -> list[str]:
+    """对一份 amr-graph-export/1 流（已按 \\n 切开、不含末尾空元素）返回违规列表（[] = 合规）。
+    纯函数，永不抛。覆盖 graph/amr-graph-export.md §8.1 C1–C11。"""
+    viol: list[str] = []
+    recs: list[tuple[int, dict]] = []
+    for i, line in enumerate(lines, 1):
+        if line == "" or line != line.strip():
+            viol.append(f"line {i}: empty line or surrounding whitespace (§2.1)")
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as e:
+            viol.append(f"line {i}: cannot parse JSON: {e}")
+            continue
+        if not isinstance(obj, dict):
+            viol.append(f"line {i}: record is not an object")
+            continue
+        recs.append((i, obj))
+    if not recs:
+        return viol + ["empty stream: header missing (C1)"]
+
+    # ---- C1 / C3 header --------------------------------------------------------------------
+    _hi, h = recs[0]
+    if h.get("type") != "header":
+        return viol + ["C1: first record must be type=header"]
+    if list(h.keys()) != list(GRAPH_FIELDS["header"]):
+        viol.append(f"header: keys/order {list(h.keys())} != {list(GRAPH_FIELDS['header'])} (C3)")
+    schema = h.get("schema")
+    if not (isinstance(schema, str) and schema.startswith(GRAPH_SCHEMA_PREFIX)
+            and schema[len(GRAPH_SCHEMA_PREFIX):].split(".")[0] == "1"):
+        viol.append(f"header.schema {schema!r} must be {GRAPH_SCHEMA_PREFIX}1[.x] (C1)")
+    if h.get("status") != "ok":
+        viol.append(f"header.status {h.get('status')!r} != 'ok' (C1：error 流不进 dry-run)")
+    mode = h.get("mode")
+    if mode not in ("full", "incremental"):
+        viol.append(f"header.mode {mode!r} not in {{full, incremental}} (§3.1)")
+    elif mode == "full" and h.get("since") is not None:
+        viol.append("header.since must be null in full mode (§3.1)")
+    elif mode == "incremental" and not _g_ts(h.get("since")):
+        viol.append("header.since must be a timestamp in incremental mode (§3.1)")
+    if h.get("pii_policy") not in ("raw", "redacted"):
+        viol.append(f"header.pii_policy {h.get('pii_policy')!r} not in {{raw, redacted}} (§5.4)")
+    if not _g_ts(h.get("exported_at")):
+        viol.append("header.exported_at must be RFC 3339 UTC seconds (§2.4)")
+    src = h.get("source")
+    if not (isinstance(src, dict) and list(src.keys()) == ["amr_version", "amr_commit", "db_sha256"]
+            and _g_str(src.get("amr_version")) and _g_opt_str(src.get("amr_commit"))
+            and _g_opt_str(src.get("db_sha256"))):
+        viol.append("header.source must be {amr_version, amr_commit?, db_sha256?} (§3.1)")
+    rules = h.get("rules")
+    if not (isinstance(rules, dict)
+            and list(rules.keys()) == ["identifier_canon", "phone_e164", "redaction"]
+            and all(_g_str(v) for v in rules.values())):
+        viol.append("header.rules must be {identifier_canon, phone_e164, redaction} (§3.1)")
+    wm = h.get("watermark")
+    if not (isinstance(wm, dict) and list(wm.keys()) == ["persons_updated_at_max", "events_id_max"]
+            and _g_opt_ts(wm.get("persons_updated_at_max")) and _g_opt_int(wm.get("events_id_max"))):
+        viol.append("header.watermark must be {persons_updated_at_max?, events_id_max?} (§3.1)")
+    inv = h.get("invariants")
+    if not (isinstance(inv, dict) and list(inv.keys()) == ["persons_sharing_endpoint"]):
+        viol.append("header.invariants must be {persons_sharing_endpoint} (§3.1)")
+    elif inv.get("persons_sharing_endpoint") != 0:
+        viol.append(f"header.invariants.persons_sharing_endpoint "
+                    f"{inv.get('persons_sharing_endpoint')!r} != 0 (C7)")
+    counts = h.get("counts")
+    if not (isinstance(counts, dict) and list(counts.keys()) == list(GRAPH_TYPES)
+            and all(isinstance(v, int) and not isinstance(v, bool) and v >= 0
+                    for v in counts.values())):
+        viol.append(f"header.counts must have exactly {list(GRAPH_TYPES)} as non-negative ints (C4)")
+        counts = {}
+    bs = h.get("body_sha256")
+    if not (bs is None or (isinstance(bs, str) and re.fullmatch(r"[0-9a-f]{64}", bs))):
+        viol.append("header.body_sha256 must be null or 64 lowercase hex (§2.4)")
+
+    # ---- C2 / C3 body: type blocks, key order ---------------------------------------------
+    by_type: dict[str, list[tuple[int, dict]]] = {t: [] for t in GRAPH_TYPES}
+    last_rank = -1
+    for i, r in recs[1:]:
+        t = r.get("type")
+        if t == "header":
+            viol.append(f"line {i}: second header (C1)")
+            continue
+        if t not in GRAPH_TYPES:
+            continue                          # C2：未知 type 跳过并计数（minor 兼容）
+        rank = GRAPH_TYPES.index(t)
+        if rank < last_rank:
+            viol.append(f"line {i}: {t} after a later type block — type block order (§2.4 第 1 条)")
+        last_rank = max(last_rank, rank)
+        if list(r.keys()) != list(GRAPH_FIELDS[t]):
+            viol.append(f"line {i}: {t} keys/order {list(r.keys())} != {list(GRAPH_FIELDS[t])} (C3)")
+        by_type[t].append((i, r))
+
+    # ---- C4 counts == rows ---------------------------------------------------------------
+    for t in GRAPH_TYPES:
+        if counts and counts.get(t) != len(by_type[t]):
+            viol.append(f"header.counts.{t}={counts.get(t)!r} but {len(by_type[t])} rows (C4)")
+
+    def sorted_check(t: str, key) -> None:
+        rows = [r for _i, r in by_type[t]]
+        try:
+            if rows != sorted(rows, key=key):
+                viol.append(f"{t}: rows not in contract sort order (§2.4 第 1 条)")
+        except (TypeError, ValueError, AttributeError):
+            viol.append(f"{t}: sort key not computable (field type error)")
+
+    # ---- person ----------------------------------------------------------------------------
+    persons: dict[str, dict] = {}
+    for i, r in by_type["person"]:
+        pid = r.get("id")
+        if not _g_str(pid):
+            viol.append(f"line {i}: person.id must be a non-empty string")
+        elif pid in persons:
+            viol.append(f"line {i}: duplicate person.id (C5)")
+        else:
+            persons[pid] = r
+        if not _g_opt_str(r.get("name")):
+            viol.append(f"line {i}: person.name must be null or non-empty string")
+        if r.get("name_by") not in GRAPH_BY:
+            viol.append(f"line {i}: person.name_by {r.get('name_by')!r} not in {{user, engine}}")
+        if not _g_str_list(r.get("aliases")):
+            viol.append(f"line {i}: person.aliases must be a list of non-empty strings")
+        if not isinstance(r.get("watch"), bool):
+            viol.append(f"line {i}: person.watch must be bool")
+        for f in ("created_at", "updated_at"):
+            if not _g_ts(r.get(f)):
+                viol.append(f"line {i}: person.{f} must be RFC 3339 UTC (C11)")
+        if not _g_opt_ts(r.get("last_contact_at")):
+            viol.append(f"line {i}: person.last_contact_at must be null or RFC 3339 UTC (C11)")
+        acc = r.get("accounts")
+        if not (isinstance(acc, list) and all(_g_opt_int(a) and a is not None for a in acc)
+                and acc == sorted(set(acc))):
+            viol.append(f"line {i}: person.accounts must be a sorted unique list of ints")
+        srcs = r.get("sources")
+        if not (isinstance(srcs, list) and all(s in GRAPH_CP_SOURCES for s in srcs)
+                and srcs == sorted(set(srcs))):
+            viol.append(f"line {i}: person.sources must be a sorted unique list of source enum values")
+    sorted_check("person", lambda r: str(r.get("id")).encode("utf-8"))
+
+    # ---- contact_point ---------------------------------------------------------------------
+    cp_keys: set[tuple] = set()
+    endpoint_owner: dict[tuple, str] = {}
+    derived_sources: dict[str, set] = {pid: set() for pid in persons}
+    derived_accounts: dict[str, set] = {pid: set() for pid in persons}
+    for i, r in by_type["contact_point"]:
+        pid, kind = r.get("person_id"), r.get("kind")
+        if pid not in persons:
+            viol.append(f"line {i}: contact_point.person_id does not resolve to a person (C6)")
+        if kind not in GRAPH_CP_KINDS:
+            viol.append(f"line {i}: contact_point.kind {kind!r} not in enum (C11)")
+        if not _g_opt_str(r.get("value_raw")):
+            viol.append(f"line {i}: contact_point.value_raw must be null or non-empty string")
+        vn = r.get("value_normalized")
+        if not _g_str(vn):
+            viol.append(f"line {i}: contact_point.value_normalized must be a non-empty string")
+        e164, unparsed = r.get("value_e164"), r.get("unparsed")
+        if kind == "phone":
+            if not (e164 is None or (isinstance(e164, str) and GRAPH_E164.match(e164))):
+                viol.append(f"line {i}: contact_point.value_e164 must be null or E.164 (C10)")
+            if not isinstance(unparsed, bool) or unparsed != (e164 is None):
+                viol.append(f"line {i}: phone: unparsed must be bool and == (value_e164 is null) (C10)")
+        elif e164 is not None or unparsed is not None:
+            viol.append(f"line {i}: non-phone: value_e164 and unparsed must be null (C10)")
+        source = r.get("source")
+        if source not in GRAPH_CP_SOURCES:
+            viol.append(f"line {i}: contact_point.source {source!r} not in enum (C11)")
+        if r.get("by") not in GRAPH_BY | {"unknown"}:
+            viol.append(f"line {i}: contact_point.by {r.get('by')!r} not in {{user, engine, unknown}}")
+        if not _g_opt_ts(r.get("confirmed_at")):
+            viol.append(f"line {i}: contact_point.confirmed_at must be null or RFC 3339 UTC (C11)")
+        ev = r.get("evidence_ref")
+        if not (ev is None or (_g_str(ev) and ev.startswith(GRAPH_EVIDENCE_REF))):
+            viol.append(f"line {i}: contact_point.evidence_ref must be null or '{GRAPH_EVIDENCE_REF}<id>'")
+        md = r.get("match_digits")
+        if not _g_opt_int(md) or (md is not None and source != "phone_suffix_match") \
+                or (md is None and source == "phone_suffix_match"):
+            viol.append(f"line {i}: match_digits must be an int iff source=phone_suffix_match (C10)")
+        if not _g_opt_str(r.get("batch")) or (r.get("batch") is None and source == "dedup_batch"):
+            viol.append(f"line {i}: contact_point.batch must be non-empty when source=dedup_batch")
+        if not _g_opt_int(r.get("account_id")):
+            viol.append(f"line {i}: contact_point.account_id must be null or int")
+        if not isinstance(r.get("pinned"), bool):
+            viol.append(f"line {i}: contact_point.pinned must be bool")
+        nk = (pid, kind, vn, source)
+        if nk in cp_keys:
+            viol.append(f"line {i}: duplicate contact_point natural key (C5)")
+        cp_keys.add(nk)
+        ep = (kind, vn)
+        if ep in endpoint_owner and endpoint_owner[ep] != pid:
+            viol.append(f"line {i}: endpoint ({kind}, …) owned by two persons — persons_sharing_endpoint (C7)")
+        endpoint_owner.setdefault(ep, pid)
+        if pid in persons:
+            derived_sources[pid].add(source)
+            if r.get("account_id") is not None:
+                derived_accounts[pid].add(r["account_id"])
+    sorted_check("contact_point", lambda r: (str(r.get("person_id")).encode("utf-8"), str(r.get("kind")),
+                                             str(r.get("value_normalized")), str(r.get("source"))))
+    for pid, p in persons.items():            # C9 便利字段与真相一致
+        if p.get("sources") != sorted(derived_sources[pid]):
+            viol.append(f"person {pid[:4]}…: sources {p.get('sources')} != derived from contact_points (C9)")
+        if p.get("accounts") != sorted(derived_accounts[pid]):
+            viol.append(f"person {pid[:4]}…: accounts {p.get('accounts')} != derived from contact_points (C9)")
+
+    # ---- merge_record ----------------------------------------------------------------------
+    mr_ids: set[str] = set()
+    survivor_of: dict[str, str] = {}
+    for i, r in by_type["merge_record"]:
+        mid = r.get("id")
+        if not _g_digits(mid):
+            viol.append(f"line {i}: merge_record.id must be a decimal string")
+        elif mid in mr_ids:
+            viol.append(f"line {i}: duplicate merge_record.id (C5)")
+        mr_ids.add(str(mid))
+        action, surv, merged = r.get("action"), r.get("survivor_id"), r.get("merged_id")
+        if action not in ("merge", "self"):
+            viol.append(f"line {i}: merge_record.action {action!r} not in {{merge, self}}")
+        if action == "self" and surv is not None:
+            viol.append(f"line {i}: action=self requires survivor_id=null")
+        if action == "merge" and not _g_str(surv):
+            viol.append(f"line {i}: action=merge requires survivor_id")
+        if not _g_str(merged):
+            viol.append(f"line {i}: merge_record.merged_id must be a non-empty string")
+        if r.get("by") not in GRAPH_BY:
+            viol.append(f"line {i}: merge_record.by {r.get('by')!r} not in {{user, engine}}")
+        for f in ("batch", "rule", "reason"):
+            if not _g_opt_str(r.get(f)):
+                viol.append(f"line {i}: merge_record.{f} must be null or non-empty string")
+        if not (r.get("evidence") is None or isinstance(r.get("evidence"), dict)):
+            viol.append(f"line {i}: merge_record.evidence must be null or object")
+        if not _g_ts(r.get("merged_at")):
+            viol.append(f"line {i}: merge_record.merged_at must be RFC 3339 UTC (C11)")
+        if not _g_opt_ts(r.get("undone_at")):
+            viol.append(f"line {i}: merge_record.undone_at must be null or RFC 3339 UTC (C11)")
+        if action == "merge" and r.get("undone_at") is None and _g_str(merged) and _g_str(surv):
+            if merged in persons:
+                viol.append(f"line {i}: active merge but merged_id still present as a person (C8)")
+            survivor_of[merged] = surv
+    sorted_check("merge_record", lambda r: int(r.get("id")))
+    for merged, surv in survivor_of.items():   # C8 链可解、无环
+        seen, cur, ok = set(), surv, False
+        while True:
+            if cur in persons:
+                ok = True
+                break
+            if cur in seen or cur not in survivor_of:
+                break
+            seen.add(cur)
+            cur = survivor_of[cur]
+        if not ok:
+            viol.append(f"merge_record: survivor chain of merged {merged[:4]}… does not resolve to a person (C8)")
+
+    # ---- negative_sample -------------------------------------------------------------------
+    ns_keys: set[tuple] = set()
+    for i, r in by_type["negative_sample"]:
+        kind, a, b = r.get("kind"), r.get("a_id"), r.get("b_id")
+        if not _g_opt_str(kind):
+            viol.append(f"line {i}: negative_sample.kind must be null or non-empty string")
+        if not (_g_str(a) and _g_str(b)):
+            viol.append(f"line {i}: negative_sample.a_id / b_id must be non-empty strings")
+        elif a == b:
+            viol.append(f"line {i}: negative_sample.a_id == b_id (C10)")
+        for f in ("a_person_id", "b_person_id"):
+            v = r.get(f)
+            if not _g_opt_str(v):
+                viol.append(f"line {i}: negative_sample.{f} must be null or non-empty string")
+            elif v is not None and v not in persons:
+                viol.append(f"line {i}: negative_sample.{f} does not resolve to a person (C6)")
+        if not _g_opt_str(r.get("reason")):
+            viol.append(f"line {i}: negative_sample.reason must be null or non-empty string")
+        if not _g_ts(r.get("created_at")):
+            viol.append(f"line {i}: negative_sample.created_at must be RFC 3339 UTC (C11)")
+        nk = (kind, a, b)
+        if nk in ns_keys:
+            viol.append(f"line {i}: duplicate negative_sample (C5)")
+        ns_keys.add(nk)
+    sorted_check("negative_sample", lambda r: (r.get("kind") or "", str(r.get("a_id")), str(r.get("b_id"))))
+
+    # ---- organization ----------------------------------------------------------------------
+    orgs: dict[str, dict] = {}
+    for i, r in by_type["organization"]:
+        oid = r.get("id")
+        if not _g_digits(oid):
+            viol.append(f"line {i}: organization.id must be a decimal string")
+        elif oid in orgs:
+            viol.append(f"line {i}: duplicate organization.id (C5)")
+        else:
+            orgs[oid] = r
+        if not _g_str(r.get("name")):
+            viol.append(f"line {i}: organization.name must be a non-empty string")
+        if not _g_str_list(r.get("aliases")):
+            viol.append(f"line {i}: organization.aliases must be a list of non-empty strings")
+        for f in ("kind_raw", "parent_id", "merged_into", "registration_no", "jurisdiction"):
+            if not _g_opt_str(r.get(f)):
+                viol.append(f"line {i}: organization.{f} must be null or non-empty string")
+        if r.get("by") not in GRAPH_BY:
+            viol.append(f"line {i}: organization.by {r.get('by')!r} not in {{user, engine}}")
+        if not _g_ts(r.get("created_at")):
+            viol.append(f"line {i}: organization.created_at must be RFC 3339 UTC (C11)")
+        if not (r.get("domains") is None or _g_str_list(r.get("domains"))):
+            viol.append(f"line {i}: organization.domains must be null or a list of non-empty strings")
+    for i, r in by_type["organization"]:
+        for f in ("parent_id", "merged_into"):
+            v = r.get(f)
+            if v is not None and v not in orgs:
+                viol.append(f"line {i}: organization.{f} does not resolve to an organization (C6)")
+    sorted_check("organization", lambda r: int(r.get("id")))
+
+    # ---- employment ------------------------------------------------------------------------
+    emp_ids: set[str] = set()
+    for i, r in by_type["employment"]:
+        eid = r.get("id")
+        if not _g_digits(eid):
+            viol.append(f"line {i}: employment.id must be a decimal string")
+        elif eid in emp_ids:
+            viol.append(f"line {i}: duplicate employment.id (C5)")
+        emp_ids.add(str(eid))
+        if r.get("person_id") not in persons:
+            viol.append(f"line {i}: employment.person_id does not resolve to a person (C6)")
+        if r.get("org_id") not in orgs:
+            viol.append(f"line {i}: employment.org_id does not resolve to an organization (C6)")
+        for f in ("title", "dept", "source", "quote", "superseded_by", "revoked_by", "revoke_reason"):
+            if not _g_opt_str(r.get(f)):
+                viol.append(f"line {i}: employment.{f} must be null or non-empty string")
+        if r.get("state") not in ("current", "former"):
+            viol.append(f"line {i}: employment.state {r.get('state')!r} not in {{current, former}}")
+        if r.get("by") not in GRAPH_BY:
+            viol.append(f"line {i}: employment.by {r.get('by')!r} not in {{user, engine}}")
+        ev = r.get("evidence_ref")
+        if not (ev is None or (_g_str(ev) and ev.startswith(GRAPH_EVIDENCE_REF))):
+            viol.append(f"line {i}: employment.evidence_ref must be null or '{GRAPH_EVIDENCE_REF}<id>'")
+        for f in ("started_at", "ended_at", "revoked_at"):
+            if not _g_opt_ts(r.get(f)):
+                viol.append(f"line {i}: employment.{f} must be null or RFC 3339 UTC (C11)")
+        if not _g_ts(r.get("recorded_at")):
+            viol.append(f"line {i}: employment.recorded_at must be RFC 3339 UTC (C11)")
+    for i, r in by_type["employment"]:
+        sb = r.get("superseded_by")
+        if sb is not None and sb not in emp_ids:
+            viol.append(f"line {i}: employment.superseded_by does not resolve to an employment (C6)")
+    sorted_check("employment", lambda r: int(r.get("id")))
+
+    # ---- self_identity ---------------------------------------------------------------------
+    for i, r in by_type["self_identity"]:
+        if not _g_opt_int(r.get("account_id")):
+            viol.append(f"line {i}: self_identity.account_id must be null or int")
+        if r.get("kind") not in GRAPH_CP_KINDS:
+            viol.append(f"line {i}: self_identity.kind {r.get('kind')!r} not in enum (C11)")
+        if not _g_str(r.get("value_normalized")):
+            viol.append(f"line {i}: self_identity.value_normalized must be a non-empty string")
+        if not _g_opt_str(r.get("persona_raw")):
+            viol.append(f"line {i}: self_identity.persona_raw must be null or non-empty string")
+        if not _g_ts(r.get("created_at")):
+            viol.append(f"line {i}: self_identity.created_at must be RFC 3339 UTC (C11)")
+    sorted_check("self_identity", lambda r: (str(r.get("kind")), str(r.get("value_normalized"))))
+
+    return viol
+
+
 def main(argv: list[str]) -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
     fixtures_dir = root / "fixtures" / "message-canonical"
@@ -290,14 +714,38 @@ def main(argv: list[str]) -> int:
         if not viol:
             print(f"  [ok]   {f.name} (rich-file)")
 
+    # graph/amr-graph-export.md §8.1：AMR → Metis 导出流（JSONL；一份文件 = 一次导出；另一套校验，单独目录）。
+    graph_dir = root / "fixtures" / "amr-graph-export"
+    graph_files = sorted(graph_dir.glob("*.jsonl"))
+    for f in graph_files:
+        try:
+            text = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"  [FAIL] {f.name}: cannot read as UTF-8: {e}", file=sys.stderr)
+            total_viol += 1
+            continue
+        viol = []
+        if "\r" in text:
+            viol.append("stream contains CR — lines must end with \\n only (§2.1)")
+        if not text.endswith("\n"):
+            viol.append("stream must end with \\n (§2.1)")
+        viol += validate_graph_export(text.split("\n")[:-1] if text.endswith("\n") else text.split("\n"))
+        for v in viol:
+            print(f"  [FAIL] {f.name}: {v}", file=sys.stderr)
+        total_viol += len(viol)
+        if not viol:
+            print(f"  [ok]   {f.name} (amr-graph-export, {text.count(chr(10))} lines)")
+
     total_viol += check_constitution_sync(root)
 
     print(f"\nconformance: {len(files)} envelope + {len(read_files)} read-signal "
-          f"+ {len(rich_files)} rich-file fixtures, {total_viol} violation(s)")
+          f"+ {len(rich_files)} rich-file + {len(graph_files)} amr-graph-export fixtures, "
+          f"{total_viol} violation(s)")
     if total_viol:
         print("conformance: RED — fixtures drifted from contract", file=sys.stderr)
         return 1
-    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive; constitution texts in sync")
+    print("conformance: GREEN — all fixtures conform to message.canonical + rich-file.archive "
+          "+ amr-graph-export; constitution texts in sync")
     return 0
 
 
